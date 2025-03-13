@@ -1,0 +1,193 @@
+2025-03-14 03:43:08,520 - INFO - DataProcessor initialized
+2025-03-14 03:43:08,522 - INFO - Loading all datasets from C:\Users\ziyad\Efficode-ACRR\backend\data\raw
+2025-03-14 03:43:08,522 - INFO - Loading bubble_sort_dataset.csv
+2025-03-14 03:43:08,533 - INFO - Loaded 200 rows from bubble_sort_dataset.csv
+2025-03-14 03:43:08,533 - INFO - Loading heap_sort_dataset.csv
+2025-03-14 03:43:08,540 - INFO - Loaded 200 rows from heap_sort_dataset.csv
+2025-03-14 03:43:08,540 - INFO - Loading improved_heap_sort_dataset.csv
+2025-03-14 03:43:08,551 - INFO - Loaded 200 rows from improved_heap_sort_dataset.csv
+2025-03-14 03:43:08,551 - INFO - Loading insertion_sort_dataset.csv
+2025-03-14 03:43:08,561 - INFO - Loaded 200 rows from insertion_sort_dataset.csv
+2025-03-14 03:43:08,561 - INFO - Loading merge_sort_dataset.csv
+2025-03-14 03:43:08,569 - INFO - Loaded 200 rows from merge_sort_dataset.csv
+2025-03-14 03:43:08,570 - INFO - Loading quick_sort_dataset.csv
+2025-03-14 03:43:08,577 - INFO - Loaded 200 rows from quick_sort_dataset.csv
+2025-03-14 03:43:08,577 - INFO - Loading selection_sort_dataset.csv
+2025-03-14 03:43:08,583 - INFO - Loaded 200 rows from selection_sort_dataset.csv
+2025-03-14 03:43:08,586 - INFO - Combined dataset: 1400 rows, ['algorithm_name', 'code_type', 'code', 'time_complexity', 'space_complexity', 'explanation', 'code_length', 'code_tokens', 'loop_count', 'loop_nesting_depth', 'recursion_used', 'data_structures', 'imports', 'is_optimized', 'alternative_algorithm', 'alternative_code', 'Alternative Time Complexity', 'Alternative Space Complexity', 'Alternative Code Length', 'Alternative Code Tokens', 'related_algorithms', 'domain_tag', 'functional_code_length', 'essential_loops', 'redundant_loops', 'code_quality_score', 'redundancy_score', 'comment_to_code_ratio', 'benchmark_time_100', 'estimated_runtime_1000', 'input_sensitivity'] columns
+2025-03-14 03:43:08,587 - INFO - Preprocessing dataset...
+2025-03-14 03:43:08,629 - INFO - Valid code samples: 0
+2025-03-14 03:43:08,629 - INFO - Extracting code features...
+2025-03-14 03:43:08,632 - INFO - Feature extraction complete
+2025-03-14 03:43:08,632 - INFO - Normalizing complexity labels...
+2025-03-14 03:43:08,633 - INFO - 
+Complexity distribution:
+2025-03-14 03:43:08,633 - INFO - 
+Time complexity:
+2025-03-14 03:43:08,635 - INFO - 
+Space complexity:
+2025-03-14 03:43:08,636 - INFO - Preprocessing complete
+2025-03-14 03:43:08,636 - INFO - Splitting dataset into train/val/test...
+2025-03-14 03:43:08,637 - WARNING - Stratified split failed: With n_samples=0, test_size=None and train_size=0.7, the resulting train set will be empty. Adjust any of the aforementioned parameters.
+2025-03-14 03:43:08,638 - INFO - Using simple random split instead
+2025-03-14 03:43:08,641 - INFO - Train: 0 samples
+2025-03-14 03:43:08,642 - INFO - Val: 0 samples
+2025-03-14 03:43:08,642 - INFO - Test: 0 samples
+2025-03-14 03:43:08,648 - INFO - Saved processed dataset to C:\Users\ziyad\Efficode-ACRR\backend\data\processed\processed_dataset.csv
+2025-03-14 03:43:08,653 - INFO - Saved metadata to C:\Users\ziyad\Efficode-ACRR\backend\data\processed\metadata.json
+2025-03-14 03:51:06,883 - INFO - DataProcessor initialized
+2025-03-14 03:51:06,884 - INFO - Loading all datasets from C:\Users\ziyad\Efficode-ACRR\backend\data\raw
+2025-03-14 03:51:06,884 - INFO - Loading bubble_sort_dataset.csv
+2025-03-14 03:51:06,891 - INFO - Loaded 200 rows from bubble_sort_dataset.csv
+2025-03-14 03:51:06,891 - INFO - Loading heap_sort_dataset.csv
+2025-03-14 03:51:06,897 - INFO - Loaded 200 rows from heap_sort_dataset.csv
+2025-03-14 03:51:06,898 - INFO - Loading improved_heap_sort_dataset.csv
+2025-03-14 03:51:06,907 - INFO - Loaded 200 rows from improved_heap_sort_dataset.csv
+2025-03-14 03:51:06,907 - INFO - Loading insertion_sort_dataset.csv
+2025-03-14 03:51:06,913 - INFO - Loaded 200 rows from insertion_sort_dataset.csv
+2025-03-14 03:51:06,913 - INFO - Loading merge_sort_dataset.csv
+2025-03-14 03:51:06,918 - INFO - Loaded 200 rows from merge_sort_dataset.csv
+2025-03-14 03:51:06,919 - INFO - Loading quick_sort_dataset.csv
+2025-03-14 03:51:06,924 - INFO - Loaded 200 rows from quick_sort_dataset.csv
+2025-03-14 03:51:06,925 - INFO - Loading selection_sort_dataset.csv
+2025-03-14 03:51:06,931 - INFO - Loaded 200 rows from selection_sort_dataset.csv
+2025-03-14 03:51:06,933 - INFO - Combined dataset: 1400 rows, ['algorithm_name', 'code_type', 'code', 'time_complexity', 'space_complexity', 'explanation', 'code_length', 'code_tokens', 'loop_count', 'loop_nesting_depth', 'recursion_used', 'data_structures', 'imports', 'is_optimized', 'alternative_algorithm', 'alternative_code', 'Alternative Time Complexity', 'Alternative Space Complexity', 'Alternative Code Length', 'Alternative Code Tokens', 'related_algorithms', 'domain_tag', 'functional_code_length', 'essential_loops', 'redundant_loops', 'code_quality_score', 'redundancy_score', 'comment_to_code_ratio', 'benchmark_time_100', 'estimated_runtime_1000', 'input_sensitivity'] columns
+2025-03-14 03:51:06,934 - INFO - Preprocessing dataset...
+2025-03-14 03:51:06,974 - INFO - Valid code samples: 0
+2025-03-14 03:51:06,974 - INFO - Extracting code features...
+2025-03-14 03:51:06,975 - INFO - Feature extraction complete
+2025-03-14 03:51:06,975 - INFO - Normalizing complexity labels...
+2025-03-14 03:51:06,976 - INFO - 
+Complexity distribution:
+2025-03-14 03:51:06,977 - INFO - 
+Time complexity:
+2025-03-14 03:51:06,977 - INFO - 
+Space complexity:
+2025-03-14 03:51:06,978 - INFO - Preprocessing complete
+2025-03-14 03:51:06,978 - INFO - Splitting dataset into train/val/test...
+2025-03-14 03:51:06,979 - WARNING - Stratified split failed: With n_samples=0, test_size=None and train_size=0.7, the resulting train set will be empty. Adjust any of the aforementioned parameters.
+2025-03-14 03:51:06,979 - INFO - Using simple random split instead
+2025-03-14 03:51:06,981 - INFO - Train: 0 samples
+2025-03-14 03:51:06,982 - INFO - Val: 0 samples
+2025-03-14 03:51:06,982 - INFO - Test: 0 samples
+2025-03-14 03:51:06,983 - INFO - Saved processed dataset to C:\Users\ziyad\Efficode-ACRR\backend\data\processed\processed_dataset.csv
+2025-03-14 03:51:06,985 - INFO - Saved metadata to C:\Users\ziyad\Efficode-ACRR\backend\data\processed\metadata.json
+2025-03-14 03:51:37,666 - INFO - DataProcessor initialized
+2025-03-14 03:51:37,666 - INFO - Loading all datasets from C:\Users\ziyad\Efficode-ACRR\backend\data\raw
+2025-03-14 03:51:37,667 - INFO - Loading bubble_sort_dataset.csv
+2025-03-14 03:51:37,675 - INFO - Loaded 200 rows from bubble_sort_dataset.csv
+2025-03-14 03:51:37,675 - INFO - Loading heap_sort_dataset.csv
+2025-03-14 03:51:37,680 - INFO - Loaded 200 rows from heap_sort_dataset.csv
+2025-03-14 03:51:37,680 - INFO - Loading improved_heap_sort_dataset.csv
+2025-03-14 03:51:37,688 - INFO - Loaded 200 rows from improved_heap_sort_dataset.csv
+2025-03-14 03:51:37,688 - INFO - Loading insertion_sort_dataset.csv
+2025-03-14 03:51:37,695 - INFO - Loaded 200 rows from insertion_sort_dataset.csv
+2025-03-14 03:51:37,695 - INFO - Loading merge_sort_dataset.csv
+2025-03-14 03:51:37,701 - INFO - Loaded 200 rows from merge_sort_dataset.csv
+2025-03-14 03:51:37,701 - INFO - Loading quick_sort_dataset.csv
+2025-03-14 03:51:37,709 - INFO - Loaded 200 rows from quick_sort_dataset.csv
+2025-03-14 03:51:37,709 - INFO - Loading selection_sort_dataset.csv
+2025-03-14 03:51:37,715 - INFO - Loaded 200 rows from selection_sort_dataset.csv
+2025-03-14 03:51:37,717 - INFO - Combined dataset: 1400 rows, ['algorithm_name', 'code_type', 'code', 'time_complexity', 'space_complexity', 'explanation', 'code_length', 'code_tokens', 'loop_count', 'loop_nesting_depth', 'recursion_used', 'data_structures', 'imports', 'is_optimized', 'alternative_algorithm', 'alternative_code', 'Alternative Time Complexity', 'Alternative Space Complexity', 'Alternative Code Length', 'Alternative Code Tokens', 'related_algorithms', 'domain_tag', 'functional_code_length', 'essential_loops', 'redundant_loops', 'code_quality_score', 'redundancy_score', 'comment_to_code_ratio', 'benchmark_time_100', 'estimated_runtime_1000', 'input_sensitivity'] columns
+2025-03-14 03:51:37,717 - INFO - Preprocessing dataset...
+2025-03-14 03:51:37,758 - INFO - Valid code samples: 0
+2025-03-14 03:51:37,758 - INFO - Extracting code features...
+2025-03-14 03:51:37,759 - INFO - Feature extraction complete
+2025-03-14 03:51:37,760 - INFO - Normalizing complexity labels...
+2025-03-14 03:51:37,760 - INFO - 
+Complexity distribution:
+2025-03-14 03:51:37,760 - INFO - 
+Time complexity:
+2025-03-14 03:51:37,761 - INFO - 
+Space complexity:
+2025-03-14 03:51:37,762 - INFO - Preprocessing complete
+2025-03-14 03:51:37,762 - INFO - Splitting dataset into train/val/test...
+2025-03-14 03:51:37,763 - WARNING - Stratified split failed: With n_samples=0, test_size=None and train_size=0.7, the resulting train set will be empty. Adjust any of the aforementioned parameters.
+2025-03-14 03:51:37,763 - INFO - Using simple random split instead
+2025-03-14 03:51:37,765 - INFO - Train: 0 samples
+2025-03-14 03:51:37,765 - INFO - Val: 0 samples
+2025-03-14 03:51:37,766 - INFO - Test: 0 samples
+2025-03-14 03:51:37,768 - INFO - Saved processed dataset to C:\Users\ziyad\Efficode-ACRR\backend\data\processed\processed_dataset.csv
+2025-03-14 03:51:37,769 - INFO - Saved metadata to C:\Users\ziyad\Efficode-ACRR\backend\data\processed\metadata.json
+2025-03-14 03:51:54,825 - INFO - DataProcessor initialized
+2025-03-14 03:51:54,826 - INFO - Loading all datasets from C:\Users\ziyad\Efficode-ACRR\backend\data\raw
+2025-03-14 03:51:54,826 - INFO - Loading bubble_sort_dataset.csv
+2025-03-14 03:51:54,834 - INFO - Loaded 200 rows from bubble_sort_dataset.csv
+2025-03-14 03:51:54,834 - INFO - Loading heap_sort_dataset.csv
+2025-03-14 03:51:54,840 - INFO - Loaded 200 rows from heap_sort_dataset.csv
+2025-03-14 03:51:54,840 - INFO - Loading improved_heap_sort_dataset.csv
+2025-03-14 03:51:54,848 - INFO - Loaded 200 rows from improved_heap_sort_dataset.csv
+2025-03-14 03:51:54,848 - INFO - Loading insertion_sort_dataset.csv
+2025-03-14 03:51:54,853 - INFO - Loaded 200 rows from insertion_sort_dataset.csv
+2025-03-14 03:51:54,854 - INFO - Loading merge_sort_dataset.csv
+2025-03-14 03:51:54,859 - INFO - Loaded 200 rows from merge_sort_dataset.csv
+2025-03-14 03:51:54,860 - INFO - Loading quick_sort_dataset.csv
+2025-03-14 03:51:54,866 - INFO - Loaded 200 rows from quick_sort_dataset.csv
+2025-03-14 03:51:54,866 - INFO - Loading selection_sort_dataset.csv
+2025-03-14 03:51:54,873 - INFO - Loaded 200 rows from selection_sort_dataset.csv
+2025-03-14 03:51:54,873 - INFO - Combined dataset: 1400 rows, ['algorithm_name', 'code_type', 'code', 'time_complexity', 'space_complexity', 'explanation', 'code_length', 'code_tokens', 'loop_count', 'loop_nesting_depth', 'recursion_used', 'data_structures', 'imports', 'is_optimized', 'alternative_algorithm', 'alternative_code', 'Alternative Time Complexity', 'Alternative Space Complexity', 'Alternative Code Length', 'Alternative Code Tokens', 'related_algorithms', 'domain_tag', 'functional_code_length', 'essential_loops', 'redundant_loops', 'code_quality_score', 'redundancy_score', 'comment_to_code_ratio', 'benchmark_time_100', 'estimated_runtime_1000', 'input_sensitivity'] columns
+2025-03-14 03:51:54,873 - INFO - Preprocessing dataset...
+2025-03-14 03:51:55,030 - INFO - Valid code samples: 1400
+2025-03-14 03:51:55,031 - INFO - Extracting code features...
+2025-03-14 03:51:55,625 - INFO - Feature extraction complete
+2025-03-14 03:51:55,625 - INFO - Normalizing complexity labels...
+2025-03-14 03:51:55,636 - INFO - 
+Complexity distribution:
+2025-03-14 03:51:55,636 - INFO - 
+Time complexity:
+2025-03-14 03:51:55,641 - INFO -   O(n*log(n)): 500 samples
+2025-03-14 03:51:55,642 - INFO -   O(n*n): 900 samples
+2025-03-14 03:51:55,642 - INFO - 
+Space complexity:
+2025-03-14 03:51:55,642 - INFO -   O(1): 634 samples
+2025-03-14 03:51:55,643 - INFO -   O(n): 631 samples
+2025-03-14 03:51:55,643 - INFO -   O(n*log(n)): 35 samples
+2025-03-14 03:51:55,643 - INFO -   O(n*n): 100 samples
+2025-03-14 03:51:55,643 - INFO - Preprocessing complete
+2025-03-14 03:51:55,644 - INFO - Splitting dataset into train/val/test...
+2025-03-14 03:51:55,651 - INFO - Train: 979 samples
+2025-03-14 03:51:55,651 - INFO - Val: 210 samples
+2025-03-14 03:51:55,651 - INFO - Test: 211 samples
+2025-03-14 03:51:55,695 - INFO - Saved processed dataset to C:\Users\ziyad\Efficode-ACRR\backend\data\processed\processed_dataset.csv
+2025-03-14 03:51:55,700 - INFO - Saved metadata to C:\Users\ziyad\Efficode-ACRR\backend\data\processed\metadata.json
+2025-03-14 03:52:26,410 - INFO - DataProcessor initialized
+2025-03-14 03:52:26,411 - INFO - Loading all datasets from C:\Users\ziyad\Efficode-ACRR\backend\data\raw
+2025-03-14 03:52:26,412 - INFO - Loading bubble_sort_dataset.csv
+2025-03-14 03:52:26,418 - INFO - Loaded 200 rows from bubble_sort_dataset.csv
+2025-03-14 03:52:26,419 - INFO - Loading heap_sort_dataset.csv
+2025-03-14 03:52:26,425 - INFO - Loaded 200 rows from heap_sort_dataset.csv
+2025-03-14 03:52:26,426 - INFO - Loading improved_heap_sort_dataset.csv
+2025-03-14 03:52:26,433 - INFO - Loaded 200 rows from improved_heap_sort_dataset.csv
+2025-03-14 03:52:26,434 - INFO - Loading insertion_sort_dataset.csv
+2025-03-14 03:52:26,439 - INFO - Loaded 200 rows from insertion_sort_dataset.csv
+2025-03-14 03:52:26,439 - INFO - Loading merge_sort_dataset.csv
+2025-03-14 03:52:26,445 - INFO - Loaded 200 rows from merge_sort_dataset.csv
+2025-03-14 03:52:26,445 - INFO - Loading quick_sort_dataset.csv
+2025-03-14 03:52:26,451 - INFO - Loaded 200 rows from quick_sort_dataset.csv
+2025-03-14 03:52:26,452 - INFO - Loading selection_sort_dataset.csv
+2025-03-14 03:52:26,457 - INFO - Loaded 200 rows from selection_sort_dataset.csv
+2025-03-14 03:52:26,459 - INFO - Combined dataset: 1400 rows, ['algorithm_name', 'code_type', 'code', 'time_complexity', 'space_complexity', 'explanation', 'code_length', 'code_tokens', 'loop_count', 'loop_nesting_depth', 'recursion_used', 'data_structures', 'imports', 'is_optimized', 'alternative_algorithm', 'alternative_code', 'Alternative Time Complexity', 'Alternative Space Complexity', 'Alternative Code Length', 'Alternative Code Tokens', 'related_algorithms', 'domain_tag', 'functional_code_length', 'essential_loops', 'redundant_loops', 'code_quality_score', 'redundancy_score', 'comment_to_code_ratio', 'benchmark_time_100', 'estimated_runtime_1000', 'input_sensitivity'] columns
+2025-03-14 03:52:26,459 - INFO - Preprocessing dataset...
+2025-03-14 03:52:26,609 - INFO - Valid code samples: 1400
+2025-03-14 03:52:26,610 - INFO - Extracting code features...
+2025-03-14 03:52:27,184 - INFO - Feature extraction complete
+2025-03-14 03:52:27,184 - INFO - Normalizing complexity labels...
+2025-03-14 03:52:27,194 - INFO - 
+Complexity distribution:
+2025-03-14 03:52:27,194 - INFO - 
+Time complexity:
+2025-03-14 03:52:27,194 - INFO -   O(n*log(n)): 500 samples
+2025-03-14 03:52:27,195 - INFO -   O(n*n): 900 samples
+2025-03-14 03:52:27,195 - INFO - 
+Space complexity:
+2025-03-14 03:52:27,195 - INFO -   O(1): 634 samples
+2025-03-14 03:52:27,195 - INFO -   O(n): 631 samples
+2025-03-14 03:52:27,195 - INFO -   O(n*log(n)): 35 samples
+2025-03-14 03:52:27,195 - INFO -   O(n*n): 100 samples
+2025-03-14 03:52:27,196 - INFO - Preprocessing complete
+2025-03-14 03:52:27,196 - INFO - Splitting dataset into train/val/test...
+2025-03-14 03:52:27,200 - INFO - Train: 979 samples
+2025-03-14 03:52:27,201 - INFO - Val: 210 samples
+2025-03-14 03:52:27,201 - INFO - Test: 211 samples
+2025-03-14 03:52:27,239 - INFO - Saved processed dataset to C:\Users\ziyad\Efficode-ACRR\backend\data\processed\processed_dataset.csv
+2025-03-14 03:52:27,242 - INFO - Saved metadata to C:\Users\ziyad\Efficode-ACRR\backend\data\processed\metadata.json

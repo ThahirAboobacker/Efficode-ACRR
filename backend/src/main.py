@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple, Any, Optional
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # Import project modules
-from backend.src.data_processing import load_dataset
+from backend.src.data_processing import load_dataset, load_algorithm_dataset, get_dataset_statistics
 from backend.src.feature_extraction import extract_features
 from backend.src.rule_based import optimize_with_rules
 from backend.src.code_transformation import apply_transformations
@@ -97,6 +97,27 @@ def main():
     print("\nComplexity Comparison:")
     for key, value in complexity_comparison.items():
         print(f"{key}: {value}")
+
+    # Test dataset loading
+    try:
+        # Load bubble sort dataset
+        dataset_path = "data/raw/bubble_sort_dataset.csv"
+        df = load_algorithm_dataset(dataset_path)
+        
+        # Get and print statistics
+        stats = get_dataset_statistics(df)
+        print("\nDataset Statistics:")
+        print(f"Total samples: {stats['total_samples']}")
+        print(f"Algorithm types: {stats['algorithm_types']}")
+        print("\nOptimization Stats:")
+        print(f"Optimized: {stats['optimization_stats']['optimized']}")
+        print(f"Not optimized: {stats['optimization_stats']['not_optimized']}")
+        print("\nCode Metrics:")
+        for metric, value in stats['code_metrics'].items():
+            print(f"{metric}: {value:.2f}")
+            
+    except Exception as e:
+        print(f"Error testing dataset loading: {str(e)}")
 
 if __name__ == "__main__":
     main() 
