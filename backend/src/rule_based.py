@@ -1,35 +1,34 @@
 """
 Rule-Based Optimization Module for EFFICODE-ACRR
 
-This module implements general rule-based code optimization strategies:
+This module implements rule-based code optimization techniques for Python code:
 - Dead code elimination and unreachable code removal
 - Unused variable and function removal
-- Loop optimizations (redundant loops, loop merging)
+- Loop optimizations (redundant loops)
 - Conditional simplification and redundant conditionals removal
 - Function inlining for small functions
-- Memory usage optimization
+- Memory usage optimization (using appropriate data structures)
 - String concatenation optimization
-
-These optimizations are applied using AST transformations to improve
-code efficiency without changing its functionality.
 """
 
 import ast
 import re
 import copy
 import logging
+import sys
+import astor
 from typing import Dict, List, Tuple, Set, Optional, Union, Any
 from dataclasses import dataclass
-import astor  # Required for AST to code conversion
+from collections import defaultdict
 
-# Set up logging
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Dataclasses for optimization results
+# Data classes for optimization results
 @dataclass
 class OptimizationChange:
     """Record of a single optimization change."""
@@ -861,32 +860,6 @@ class RuleBasedOptimizer:
                     
                 return node
                 
-            def visit_UnaryOp(self, node):
-                # Process operand first
-                node.operand = self.visit(node.operand)
-                
-                # Compute constant unary operations
-                if isinstance(node.operand, ast.Constant):
-                    try:
-                        if isinstance(node.op, ast.UAdd):
-                            result = +node.operand.value
-                        elif isinstance(node.op, ast.USub):
-                            result = -node.operand.value
-                        elif isinstance(node.op, ast.Not):
-                            result = not node.operand.value
-                        elif isinstance(node.op, ast.Invert):
-                            result = ~node.operand.value
-                        else:
-                            return node  # Unsupported operation
-                            
-                        self.changes.append("Constant folding applied to unary operation")
-                        return ast.Constant(value=result)
-                    except:
-                        # Operation failed
-                        return node
-                
-                return node
-                
             def visit_Compare(self, node):
                 # Process left side and comparators
                 node.left = self.visit(node.left)
@@ -1031,39 +1004,6 @@ class RuleBasedOptimizer:
                     
                 return node
                 
-            def visit_BoolOp(self, node):
-                # Process children first
-                self.generic_visit(node)
-                
-                # Simplify redundant boolean operations
-                if isinstance(node.op, ast.And) or isinstance(node.op, ast.Or):
-                    # Remove duplicate conditions
-                    unique_values = []
-                    seen = set()
-                    
-                    for value in node.values:
-                        value_str = ast.dump(value)
-                        if value_str not in seen:
-                            unique_values.append(value)
-                            seen.add(value_str)
-                    
-                    if len(unique_values) < len(node.values):
-                        self.changes.append("Removed duplicate conditions in boolean expression")
-                        
-                        # Create change record
-                        change = OptimizationChange(
-                            description="Removed duplicate conditions",
-                            line_start=getattr(node, 'lineno', 0),
-                            line_end=getattr(node, 'end_lineno', 0),
-                            original_code=astor.to_source(node),
-                            optimized_code="# Removed duplicate conditions"
-                        )
-                        self.detailed_changes.append(change)
-                        
-                        node.values = unique_values
-                
-                return node
-                
             def visit_UnaryOp(self, node):
                 # Process operand first
                 self.generic_visit(node)
@@ -1136,33 +1076,6 @@ class RuleBasedOptimizer:
                 elif not node.orelse:
                     # If the else branch is empty, keep the if as is
                     return node
-                
-                return node
-                
-            def visit_BoolOp(self, node):
-                # Process operands first
-                self.generic_visit(node)
-                
-                # Check for redundant boolean operations
-                if isinstance(node.op, ast.And) or isinstance(node.op, ast.Or):
-                    # Remove duplicate operands
-                    unique_values = []
-                    seen_dumps = set()
-                    
-                    for value in node.values:
-                        dump = ast.dump(value)
-                        if dump not in seen_dumps:
-                            unique_values.append(value)
-                            seen_dumps.add(dump)
-                    
-                    if len(unique_values) < len(node.values):
-                        self.changes.append("Removed duplicate conditions in boolean expression")
-                        
-                        if len(unique_values) == 1:
-                            # If only one unique value left, return it directly
-                            return unique_values[0]
-                        
-                        node.values = unique_values
                 
                 return node
         
@@ -1297,6 +1210,22 @@ class RuleBasedOptimizer:
                     return node.args[0]
                     
                 return node
+                
+            def visit_For(self, node):
+                # Check for empty loop bodies
+                if not node.body:
+                    self.changes.append("Removed empty for loop")
+                    return None
+                
+                return self.generic_visit(node)
+                
+            def visit_While(self, node):
+                # Check for empty loop bodies
+                if not node.body:
+                    self.changes.append("Removed empty while loop")
+                    return None
+                    
+                return self.generic_visit(node)
         
         # Apply redundancy removal
         remover = RedundancyRemover()
@@ -1324,7 +1253,6 @@ class RuleBasedOptimizer:
                 last_stmt = node.body[-1]
                 if not isinstance(last_stmt, ast.Return):
                     # Add implicit return None at the end of function
-                    # This is technically not needed but makes the code more explicit
                     node.body.append(ast.Return(value=None))
                     
                 return node
@@ -1334,9 +1262,6 @@ class RuleBasedOptimizer:
                 if node.value is None:
                     # Leave "return None" as is
                     return node
-                    
-                # Simplify expressions in return statements using constant folding
-                # This could be expanded based on specific use cases
                     
                 return node
         
@@ -1766,6 +1691,8 @@ def bubble_sort(arr):
             if arr[j] > arr[j + 1]:
                 arr[j], arr[j + 1] = arr[j + 1], arr[j]
     return arr
+k=90
+bubble_sort([3, 2, 1])
     """
     
     # Detect inefficient patterns
