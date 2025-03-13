@@ -10,5 +10,6 @@ flask==2.3.2
 flask-cors==4.0.0
 python-dotenv==1.0.0
 matplotlib==3.7.2
-astor==0.8.1
+astor>=0.8.2
+astunparse>=1.6.3
 jupyter==1.0.0 
