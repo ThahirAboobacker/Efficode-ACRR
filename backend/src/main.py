@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 # Import project modules
 from backend.src.data_processing import load_dataset, load_algorithm_dataset, get_dataset_statistics
 from backend.src.feature_extraction import extract_features
-from backend.src.rule_based import optimize_with_rules
+from backend.src.rule_based import apply_optimization_rules as optimize_with_rules
 from backend.src.code_transformation import apply_transformations
 from backend.src.complexity_analyzer import analyze_complexity, compare_complexity
 from backend.src.explanation_generator import generate_explanation
@@ -29,7 +29,8 @@ def optimize_code(code: str, use_ml: bool = True) -> Tuple[str, str, Dict[str, A
     
     # Step 1: Apply rule-based optimizations
     print("Applying rule-based optimizations...")
-    optimized_code, applied_rules = optimize_with_rules(code)
+    optimized_code = optimize_with_rules(code)
+    applied_rules = ["Rule-based optimizations applied"] if optimized_code != code else []
     
     # Step 2: Apply ML-based optimizations if requested
     if use_ml:

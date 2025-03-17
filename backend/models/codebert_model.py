@@ -9,31 +9,49 @@ This module integrates Microsoft's CodeBERT model for code optimization tasks:
 """
 
 import os
-import torch
+import sys
 import logging
+import torch
 import numpy as np
 import pandas as pd
 import re
 import ast
 import json
 import time
-import sys
 import threading
 import functools
 from typing import List, Dict, Tuple, Optional, Union, Any
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 
+# Set up logging first
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+
+# Add parent directory to path for module imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
+
 # Import rule-based optimization module
 try:
-    from backend.src.rule_based import apply_optimization_rules as rule_based_optimize
+    # Try direct import from project structure
+    from src.rule_based import apply_optimization_rules as rule_based_optimize
+    logger.info("Successfully imported rule_based module")
 except ImportError:
     try:
-        from src.rule_based import apply_optimization_rules as rule_based_optimize
+        # Try with explicit path
+        sys.path.insert(0, os.path.join(parent_dir, 'src'))
+        from rule_based import apply_optimization_rules as rule_based_optimize
+        logger.info("Successfully imported rule_based module with adjusted path")
     except ImportError:
-        logger.warning("Failed to import rule_based module, using original code")
+        logger.warning("Failed to import rule_based module, using fallback implementation")
         def rule_based_optimize(code):
-            return code, []  # Return empty list of changes as second parameter
+            return code  # Just return the original code
 
 # Import transformers conditionally to handle potential import errors
 try:
@@ -54,18 +72,10 @@ try:
     from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
-    logging.warning("Transformers library not available. Neural optimization will be disabled.")
-    logging.warning("To enable neural optimization, install required packages with:")
-    logging.warning("pip install torch transformers")
+    logger.warning("Transformers library not available. Neural optimization will be disabled.")
+    logger.warning("To enable neural optimization, install required packages with:")
+    logger.warning("pip install torch transformers")
     TRANSFORMERS_AVAILABLE = False
-
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
-logger = logging.getLogger(__name__)
 
 # Suppress excessive warnings
 if TRANSFORMERS_AVAILABLE:
@@ -645,11 +655,17 @@ def merge(left, right):
         
         try:
             # Use the dedicated rule-based optimization module
-            # rule_based_optimize returns (optimized_code, changes_made)
-            optimized_code, _ = rule_based_optimize(code)
+            # rule_based_optimize returns the optimized code
+            optimized_code = rule_based_optimize(code)
             return optimized_code
             
+        except ValueError as e:
+            # Handle specific value errors
+            logger.warning(f"ValueError in rule-based optimization: {str(e)}")
+            return code
+            
         except Exception as e:
+            # Handle any other exceptions
             logger.warning(f"Error in rule-based optimization: {str(e)}")
             return code  # Return original code on error
     

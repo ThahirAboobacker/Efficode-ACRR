@@ -13,8 +13,17 @@ import difflib
 import tempfile
 from typing import Dict, List, Tuple, Any
 
+# Make sure we can import from the current directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, current_dir)
+
 # Import the rule-based optimizer
-from rule_based import apply_optimization_rules
+try:
+    from rule_based import apply_optimization_rules
+except ImportError:
+    sys.path.insert(0, os.path.join(parent_dir, 'src'))
+    from rule_based import apply_optimization_rules
 
 # Compatibility wrapper for the functions needed by test suite
 def optimize_code(code: str) -> Tuple[str, List[Dict[str, Any]], int]:
@@ -27,19 +36,23 @@ def optimize_code(code: str) -> Tuple[str, List[Dict[str, Any]], int]:
     Returns:
         Tuple of (optimized_code, patterns_applied, optimization_count)
     """
-    optimized_code, changes_made = apply_optimization_rules(code)
+    # Get optimized code
+    optimized_code = apply_optimization_rules(code)
     
-    # Convert string changes to the expected dictionary format
-    pattern_dicts = []
-    for change in changes_made:
-        pattern_dicts.append({
-            "name": change,
+    # Since apply_optimization_rules only returns the optimized code, 
+    # we need to infer what changes were made by comparing the original and optimized code
+    if optimized_code != code:
+        # Create a generic change description
+        pattern_dicts = [{
+            "name": "Code optimization applied",
             "severity": "medium",
             "optimization": "applied",
             "lines": [1, 1]  # Default line numbers
-        })
-    
-    return optimized_code, pattern_dicts, len(changes_made)
+        }]
+        return optimized_code, pattern_dicts, 1
+    else:
+        # No changes made
+        return code, [], 0
 
 def detect_inefficient_patterns(code: str) -> List[Dict[str, Any]]:
     """
@@ -51,18 +64,20 @@ def detect_inefficient_patterns(code: str) -> List[Dict[str, Any]]:
     Returns:
         List of detected patterns as dictionaries
     """
-    # Use optimization function to get changes and convert to pattern format
-    _, changes_made = apply_optimization_rules(code)
+    # Apply optimization and check if any changes were made
+    optimized_code = apply_optimization_rules(code)
     
-    # Convert to expected pattern format
-    patterns = []
-    for change in changes_made:
-        patterns.append({
-            "name": change,
+    # If code was optimized, it means inefficient patterns were detected
+    if optimized_code != code:
+        # Create a generic pattern for the detected inefficiency
+        patterns = [{
+            "name": "Optimization opportunity detected",
             "severity": "medium",
             "optimization": "recommended",
             "lines": [1, 1]  # Default line numbers
-        })
+        }]
+    else:
+        patterns = []
     
     return patterns
 
