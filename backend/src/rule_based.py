@@ -1,25 +1,33 @@
 """
+EFFICODE-ACRR Rule-Based Code Optimizer
+
+This module provides rule-based code optimization for Python code through 
+AST (Abstract Syntax Tree) analysis and transformation. It detects common
+inefficient patterns and applies optimizations.
+
+Usage:
+    from rule_based import optimize_code
+    
+    optimized_code, patterns, stats = optimize_code(my_python_code)
+"""
+"""
 Rule-Based Optimization Module for EFFICODE-ACRR
 
 This module implements rule-based code optimization techniques for Python code:
-- Dead code elimination and unreachable code removal
-- Unused variable and function removal
-- Loop optimizations (redundant loops)
-- Conditional simplification and redundant conditionals removal
-- Function inlining for small functions
-- Memory usage optimization (using appropriate data structures)
-- String concatenation optimization
+- Detection of inefficient patterns in algorithms and data structures
+- AST-based code transformation
+- Loop optimizations and memory usage improvements
+- Data structure optimizations
 """
 
+
 import ast
-import re
-import copy
-import logging
 import sys
-import astor
+import logging
+import copy
+import re
 from typing import Dict, List, Tuple, Set, Optional, Union, Any
-from dataclasses import dataclass
-from collections import defaultdict
+
 
 # Configure logging
 logging.basicConfig(
@@ -28,1685 +36,3327 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Data classes for optimization results
-@dataclass
-class OptimizationChange:
-    """Record of a single optimization change."""
-    description: str
-    line_start: int
-    line_end: int
-    original_code: str
-    optimized_code: str
 
 
-@dataclass
-class OptimizationResult:
-    """Comprehensive result of code optimization."""
-    original_code: str
-    optimized_code: Optional[str]
-    changes_made: List[str]
-    detailed_changes: List[OptimizationChange]
-    success: bool
-    error: Optional[str]
-    performance_impact: Dict[str, float] = None
 
+###########################################
+# PART 1: Base Classes and Utilities
+###########################################
 
-class OptimizerConfig:
-    """Configuration for the rule-based optimizer."""
+def parse_python_code(code: str) -> Optional[ast.AST]:
+    """
+    Parse Python code into an AST
     
-    def __init__(self, 
-                optimization_level: str = "medium",
-                preserve_names: bool = True,
-                preserve_comments: bool = True,
-                inline_threshold: int = 3,
-                enabled_optimizations: List[str] = None):
-        """
-        Initialize the optimizer configuration.
+    Args:
+        code: Python code string
         
-        Args:
-            optimization_level: "low", "medium", or "aggressive"
-            preserve_names: Whether to preserve variable/function names
-            preserve_comments: Whether to preserve comments
-            inline_threshold: Max line count for function inlining
-            enabled_optimizations: List of specific optimizations to enable
-        """
-        self.optimization_level = optimization_level
-        self.preserve_names = preserve_names
-        self.preserve_comments = preserve_comments
-        self.inline_threshold = inline_threshold
+    Returns:
+        AST if parsing succeeds, None otherwise
+    """
+    try:
+        return ast.parse(code)
+    except SyntaxError as e:
+        logger.error(f"Syntax error parsing code: {str(e)}")
+        return None
+
+def detect_algorithm_type(code: str) -> str:
+    """
+    Simple algorithm type detection based on patterns in code
+    
+    Args:
+        code: Python code string
         
-        # Default enabled optimizations
-        self.enabled_optimizations = enabled_optimizations or [
-            "dead_code", 
-            "unused_code", 
-            "unreachable_code",
-            "constant_folding", 
-            "redundant_code", 
-            "conditional_simplification", 
-            "function_inlining",
-            "memory_optimization",
-            "redundant_conditionals",
-            "redundant_returns",
-            "string_optimization"
-        ]
+    Returns:
+        String representing the detected algorithm type
+    """
+    tree = parse_python_code(code)
+    if not tree:
+        return "unknown"
         
-        # Set threshold values based on optimization level
-        if optimization_level == "low":
-            self.inline_threshold = 2
-        elif optimization_level == "aggressive":
-            self.inline_threshold = 5
+    # Count elements
+    counts = count_code_elements(tree)
+    
+    # Check for sorting algorithms
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            func_name = node.name.lower()
+            if 'sort' in func_name:
+                nested_loops = 0
+                for child in ast.walk(node):
+                    if isinstance(child, (ast.For, ast.While)):
+                        nested_loops += 1
+                        
+                if nested_loops >= 2:
+                    if 'bubble' in func_name:
+                        return 'bubble_sort'
+                    elif 'quick' in func_name:
+                        return 'quick_sort'
+                    elif 'merge' in func_name:
+                        return 'merge_sort'
+                    else:
+                        return 'sorting_algorithm'
             
-    def is_enabled(self, optimization: str) -> bool:
-        """Check if a specific optimization is enabled."""
-        return optimization in self.enabled_optimizations
+            # Check for search algorithms
+            elif 'search' in func_name:
+                if counts['for_loops'] == 1:
+                    return 'linear_search'
+                elif 'binary' in func_name:
+                    return 'binary_search'
+                else:
+                    return 'search_algorithm'
+                    
+    # Check for data structure patterns
+    if counts['functions'] == 1 and 'unique' in [n.name.lower() for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+        return 'unique_values_algorithm'
+        
+    return "unknown"
 
-
-class RuleBasedOptimizer:
-    """Rule-based code optimizer using general optimization techniques."""
+def count_code_elements(tree: ast.AST) -> Dict[str, int]:
+    """
+    Count various code elements in the AST
     
-    def __init__(self, config: OptimizerConfig = None):
-        """
-        Initialize the optimizer with configuration.
+    Args:
+        tree: AST to analyze
         
-        Args:
-            config: Optimizer configuration, default if None
-        """
-        self.config = config or OptimizerConfig()
-        
-        # Initialize transformers
-        self._init_transformers()
+    Returns:
+        Dictionary with counts of different code elements
+    """
+    counts = {
+        'for_loops': 0,
+        'while_loops': 0,
+        'if_statements': 0,
+        'functions': 0,
+        'classes': 0,
+        'assignments': 0,
+        'comparisons': 0,
+        'calls': 0,
+    }
+    
+    for node in ast.walk(tree):
+        if isinstance(node, ast.For):
+            counts['for_loops'] += 1
+        elif isinstance(node, ast.While):
+            counts['while_loops'] += 1
+        elif isinstance(node, ast.If):
+            counts['if_statements'] += 1
+        elif isinstance(node, ast.FunctionDef):
+            counts['functions'] += 1
+        elif isinstance(node, ast.ClassDef):
+            counts['classes'] += 1
+        elif isinstance(node, ast.Assign):
+            counts['assignments'] += 1
+        elif isinstance(node, ast.Compare):
+            counts['comparisons'] += 1
+        elif isinstance(node, ast.Call):
+            counts['calls'] += 1
+            
+    return counts
 
-    def optimize(self, code: str) -> OptimizationResult:
+class PatternDetector:
+    """Base class for detecting inefficient code patterns"""
+    
+    def detect(self, code: str) -> List[Dict[str, Any]]:
         """
-        Optimize code using rule-based transformations.
+        Detect inefficient patterns in code
         
         Args:
-            code: Source code to optimize
+            code: Python code as string
             
         Returns:
-            OptimizationResult: Comprehensive optimization result
+            List of detected patterns with metadata
         """
-        if not isinstance(code, str) or not code.strip():
-            return OptimizationResult(
-                original_code=code,
-                optimized_code=None,
-                changes_made=[],
-                detailed_changes=[],
-                success=False,
-                error="Invalid input code"
-            )
-            
+        tree = parse_python_code(code)
+        if not tree:
+            return []
+        
         try:
-            # Make backup of original code
-            original_code = code
+            patterns = self._detect_in_ast(tree)
+            for pattern in patterns:
+                if 'algorithm_type' not in pattern:
+                    pattern['algorithm_type'] = detect_algorithm_type(code)
+            return patterns
+        except Exception as e:
+            logger.error(f"Error in pattern detection ({self.__class__.__name__}): {str(e)}")
+            return []
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Detect patterns in AST (to be implemented by subclasses)
+        
+        Args:
+            tree: Abstract Syntax Tree
             
-            # Clean code while preserving comments if configured
-            cleaned_code = self._clean_code(code)
-            if not cleaned_code:
-                return OptimizationResult(
-                    original_code=original_code,
-                    optimized_code=None,
-                    changes_made=[],
-                    detailed_changes=[],
-                    success=False,
-                    error="Code cleaning failed"
-                )
+        Returns:
+            List of detected patterns
+        """
+        raise NotImplementedError("Subclasses must implement _detect_in_ast")
 
-            # Validate syntax
-            if not self._validate_syntax(cleaned_code):
-                return OptimizationResult(
-                    original_code=original_code,
-                    optimized_code=None,
-                    changes_made=[],
-                    detailed_changes=[],
-                    success=False,
-                    error="Invalid Python syntax"
-                )
 
-            # Start tracking changes
-            all_changes = []
-            detailed_changes = []
-            optimized_code = cleaned_code
-            performance_impact = {
-                "time_complexity": 0.0,
-                "space_complexity": 0.0,
-                "optimizations_applied": 0
-            }
-
-            # Parse the code into an AST for general optimizations
+class CodeTransformer:
+    """Base class for code transformation"""
+    
+    def _ast_to_code(self, tree: ast.AST) -> str:
+        """Convert AST back to code"""
+        try:
+            # Try using ast.unparse first (Python 3.9+)
+            if hasattr(ast, 'unparse'):
+                return ast.unparse(tree)
+            
+            # Fall back to astor
             try:
-                tree = ast.parse(optimized_code)
-            except Exception as e:
-                logger.error(f"Failed to parse code: {str(e)}")
-                return OptimizationResult(
-                    original_code=original_code,
-                    optimized_code=cleaned_code,
-                    changes_made=all_changes,
-                    detailed_changes=detailed_changes,
-                    success=True,
-                    error=f"AST parsing failed: {str(e)}"
-                )
-
-            # Apply general optimizations in sequence
-            try:
-                optimized_tree, general_changes, general_detailed_changes = self._apply_all_optimizations(tree, optimized_code)
-                all_changes.extend(general_changes)
-                detailed_changes.extend(general_detailed_changes)
-                
-                # Unparse tree back to code
-                optimized_code = astor.to_source(optimized_tree)
-            except Exception as e:
-                logger.warning(f"General optimization failed: {str(e)}")
-                # Fall back to the cleaned code
-                optimized_code = cleaned_code
-            
-            # Final validation
-            if not self._validate_syntax(optimized_code):
-                logger.warning("Optimized code failed validation, reverting to original")
-                return OptimizationResult(
-                    original_code=original_code,
-                    optimized_code=cleaned_code,
-                    changes_made=["Optimization reverted due to validation failure"],
-                    detailed_changes=[],
-                    success=True,
-                    error="Generated code failed validation"
-                )
-                
-            # Check if optimizations actually improved the code
-            if optimized_code == original_code:
-                all_changes.append("No effective changes were made")
-
-            # Calculate performance impact (approximate)
-            performance_impact["optimizations_applied"] = len(all_changes)
-            
-            return OptimizationResult(
-                original_code=original_code,
-                optimized_code=optimized_code,
-                changes_made=all_changes,
-                detailed_changes=detailed_changes,
-                success=True,
-                error=None,
-                performance_impact=performance_impact
-            )
-
+                import astor
+                return astor.to_source(tree)
+            except ImportError:
+                logger.error("No AST to code converter available")
+                return ""
         except Exception as e:
-            logger.error(f"Optimization failed: {str(e)}")
-            return OptimizationResult(
-                original_code=original_code,
-                optimized_code=None,
-                changes_made=[],
-                detailed_changes=[],
-                success=False,
-                error=str(e)
-            )
-
-    def _clean_code(self, code: str) -> Optional[str]:
-        """Clean and normalize code while preserving comments if needed."""
-        if not isinstance(code, str) or not code.strip():
-            return None
-
+            logger.error(f"Error converting AST to code: {str(e)}")
+            return ""
+    
+    def _fix_syntax(self, code: str) -> str:
+        """Fix common syntax issues in generated code"""
+        import re
+        
+        # Fix missing parentheses in function calls
+        code = re.sub(r'(\b\w+)(\b\w+)', r'\1(\2)', code)
+        
+        # Fix function definitions without parentheses
+        code = re.sub(r'def\s+(\w+)([a-zA-Z0-9_]+):', r'def \1(\2):', code)
+        
+        # Fix missing parentheses in len() calls
+        code = re.sub(r'len(\w+)', r'len(\1)', code)
+        
+        # Fix missing parentheses in append() calls
+        code = re.sub(r'(\w+)\.append(\w+)', r'\1.append(\2)', code)
+        
+        # Fix missing parentheses in range() calls
+        code = re.sub(r'range(\w+)', r'range(\1)', code)
+        
+        # Fix missing parentheses in print() calls
+        code = re.sub(r'print(\w+)', r'print(\1)', code)
+        
+        return code
+    
+    def transform(self, code: str) -> str:
+        """
+        Transform code to optimize it
+        
+        Args:
+            code: Python code as string
+            
+        Returns:
+            Optimized code as string
+        """
+        tree = parse_python_code(code)
+        if not tree:
+            return code
+        
         try:
-            # Remove BOM and normalize line endings
-            code = code.replace('\ufeff', '')
-            code = code.replace('\r\n', '\n').replace('\r', '\n')
-
-            if not self.config.preserve_comments:
-                # Remove comments and empty lines
-                lines = []
-                for line in code.splitlines():
-                    line = re.sub(r'#.*$', '', line)
-                    if line.strip():
-                        lines.append(line)
-                code = '\n'.join(lines)
+            transformed_tree = self._transform_ast(tree)
+            result_code = self._ast_to_code(transformed_tree)
             
-            # Normalize whitespace (but preserve indentation)
-            lines = code.splitlines()
-            code = '\n'.join(line.rstrip() for line in lines)
+            # Fix common syntax issues
+            result_code = self._fix_syntax(result_code)
             
-            return code.strip()
-
+            # Validate the generated code
+            if result_code and parse_python_code(result_code):
+                return result_code
+            else:
+                logger.error("Generated invalid code, returning original")
+                return code
         except Exception as e:
-            logger.error(f"Code cleaning failed: {str(e)}")
-            return None
+            logger.error(f"Error in code transformation: {str(e)}")
+            return code
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Transform the AST (to be implemented by subclasses)
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        raise NotImplementedError("Subclasses must implement _transform_ast")
+                
+class ASTNodeVisitor:
+    """Helper class for adding parent references to AST nodes"""
+    
+    @staticmethod
+    def add_parent_info(node: ast.AST) -> ast.AST:
+        """
+        Add parent references to AST nodes
+        
+        Args:
+            node: Root AST node
+            
+        Returns:
+            AST with parent references
+        """
+        parent_map = {}
+        
+        def _visit_node(current, parent=None):
+            if parent is not None:
+                parent_map[current] = parent
+            for child in ast.iter_child_nodes(current):
+                _visit_node(child, current)
+        
+        _visit_node(node)
+        
+        # Set parent attributes now that we have the complete map
+        for child, parent in parent_map.items():
+            setattr(child, 'parent', parent)
+            
+        return node
 
-    def _validate_syntax(self, code: str) -> bool:
-        """Validate Python syntax."""
-        try:
-            ast.parse(code)
-            return True
-        except Exception as e:
-            logger.error(f"Syntax validation failed: {str(e)}")
+class RuleUtils:
+    """Utility functions for rule-based transformations"""
+    
+    @staticmethod
+    def is_node_in_module(node: ast.AST) -> bool:
+        """
+        Check if node is directly in module body
+        
+        Args:
+            node: AST node
+            
+        Returns:
+            True if node is in module body
+        """
+        return isinstance(getattr(node, 'parent', None), ast.Module)
+    
+    @staticmethod
+    def is_function_with_name(node: ast.AST, name: str) -> bool:
+        """
+        Check if node is a function with the given name
+        
+        Args:
+            node: AST node
+            name: Function name to check
+            
+        Returns:
+            True if node is a function with given name
+        """
+        return isinstance(node, ast.FunctionDef) and node.name == name
+    
+    @staticmethod
+    def is_same_variable(node1: ast.AST, node2: ast.AST) -> bool:
+        """
+        Check if two name nodes refer to the same variable
+        
+        Args:
+            node1: First AST node
+            node2: Second AST node
+            
+        Returns:
+            True if both nodes are the same variable
+        """
+        return (isinstance(node1, ast.Name) and 
+                isinstance(node2, ast.Name) and 
+                node1.id == node2.id)
+    
+    @staticmethod
+    def is_literal_true(node: ast.AST) -> bool:
+        """
+        Check if node is the literal True
+        
+        Args:
+            node: AST node
+            
+        Returns:
+            True if node is True literal
+        """
+        if hasattr(ast, 'NameConstant'):  # Python 3.7 and earlier
+            return isinstance(node, ast.NameConstant) and node.value is True
+        # Python 3.8+ uses Constant
+        return isinstance(node, ast.Constant) and node.value is True
+    
+    @staticmethod
+    def is_literal_false(node: ast.AST) -> bool:
+        """
+        Check if node is the literal False
+        
+        Args:
+            node: AST node
+            
+        Returns:
+            True if node is False literal
+        """
+        if hasattr(ast, 'NameConstant'):  # Python 3.7 and earlier
+            return isinstance(node, ast.NameConstant) and node.value is False
+        # Python 3.8+ uses Constant
+        return isinstance(node, ast.Constant) and node.value is False
+    
+    @staticmethod
+    def is_empty_list(node: ast.AST) -> bool:
+        """
+        Check if node is an empty list literal []
+        
+        Args:
+            node: AST node
+            
+        Returns:
+            True if node is an empty list
+        """
+        return isinstance(node, ast.List) and len(node.elts) == 0
+    
+    @staticmethod
+    def is_append_call(node: ast.AST, target_name: str) -> bool:
+        """
+        Check if node is an append call on the target
+        
+        Args:
+            node: AST node
+            target_name: Name of target variable
+            
+        Returns:
+            True if node is append call on target
+        """
+        if not isinstance(node, ast.Call):
             return False
-
-    def _apply_all_optimizations(self, tree: ast.AST, source_code: str) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
+        
+        if not isinstance(node.func, ast.Attribute):
+            return False
+        
+        return (node.func.attr == 'append' and 
+                isinstance(node.func.value, ast.Name) and 
+                node.func.value.id == target_name)
+    
+    @staticmethod
+    def find_assignment_target(node: ast.AST) -> Optional[str]:
         """
-        Apply all enabled optimizations to the AST.
+        Extract the target name from an assignment node
         
         Args:
-            tree: AST to optimize
-            source_code: Original source code for reference
+            node: AST node
             
         Returns:
-            Tuple of (optimized_tree, changes, detailed_changes)
+            Target variable name or None
         """
-        changes = []
-        detailed_changes = []
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name):
+                return target.id
+        return None
+    
+    @staticmethod
+    def is_constant_node(node: ast.AST) -> bool:
+        """
+        Check if node is a constant (handles Python version differences)
         
-        # Store original AST for comparison
-        original_tree = copy.deepcopy(tree)
+        Args:
+            node: AST node to check
+            
+        Returns:
+            True if node is a constant
+        """
+        if hasattr(ast, 'Constant'):  # Python 3.8+
+            return isinstance(node, ast.Constant)
+        else:  # Python 3.7 and earlier
+            return (isinstance(node, (ast.Num, ast.Str, ast.Bytes, ast.NameConstant, ast.Ellipsis)))
+    
+    @staticmethod
+    def get_constant_value(node: ast.AST) -> Any:
+        """
+        Get the value of a constant node (handles Python version differences)
         
-        # Apply optimizations in the most effective order
-        optimization_sequence = [
-            # First phase: Analysis and simplification
-            ("dead_code", self._dead_code_elimination),
-            ("unused_code", self._unused_code_removal),
-            ("unreachable_code", self._unreachable_code_removal),
-            ("constant_folding", self._constant_folding),
+        Args:
+            node: AST constant node
             
-            # Second phase: Structural optimizations
-            ("conditional_simplification", self._simplify_conditionals),
-            ("redundant_conditionals", self._remove_redundant_conditionals),
-            ("redundant_code", self._remove_redundancies),
-            ("redundant_returns", self._remove_redundant_returns),
-            
-            # Third phase: Function optimizations
-            ("function_inlining", self._inline_functions),
-            
-            # Fourth phase: Memory and advanced optimizations
-            ("memory_optimization", self._optimize_memory),
-            ("string_optimization", self._optimize_string_concat)
-        ]
+        Returns:
+            The constant value
+        """
+        if hasattr(ast, 'Constant') and isinstance(node, ast.Constant):  # Python 3.8+
+            return node.value
+        # Python 3.7 and earlier
+        if isinstance(node, ast.Num):
+            return node.n
+        elif isinstance(node, ast.Str):
+            return node.s
+        elif isinstance(node, ast.Bytes):
+            return node.s
+        elif isinstance(node, ast.NameConstant):
+            return node.value
+        elif isinstance(node, ast.Ellipsis):
+            return ...
+        return None
+    
+    @staticmethod
+    def create_constant_node(value: Any) -> ast.AST:
+        """
+        Create a constant node (handles Python version differences)
         
-        # Apply each optimization if enabled
-        for opt_name, opt_func in optimization_sequence:
-            if self.config.is_enabled(opt_name):
-                try:
-                    # Get source lines as they currently are
-                    current_source = astor.to_source(tree)
-                    
-                    # Apply the optimization
-                    tree, opt_changes, opt_detailed = opt_func(tree)
-                    
-                    if opt_changes:
-                        changes.extend(opt_changes)
-                        detailed_changes.extend(opt_detailed)
+        Args:
+            value: The constant value
+            
+        Returns:
+            AST constant node
+        """
+        if hasattr(ast, 'Constant'):  # Python 3.8+
+            return ast.Constant(value=value, kind=None)
+        
+        # Python 3.7 and earlier
+        if isinstance(value, (int, float, complex)):
+            return ast.Num(n=value)
+        elif isinstance(value, str):
+            return ast.Str(s=value)
+        elif isinstance(value, bytes):
+            return ast.Bytes(s=value)
+        elif value is None or isinstance(value, bool):
+            return ast.NameConstant(value=value)
+        elif value is Ellipsis:
+            return ast.Ellipsis()
+        
+        # Default fallback
+        logger.warning(f"Could not create constant node for {value}, using None")
+        return ast.NameConstant(value=None) if not hasattr(ast, 'Constant') else ast.Constant(value=None, kind=None)
+    
+###########################################
+# PART 2: Pattern Detectors for Optimizations
+###########################################
+
+class UnusedVariableDetector(PatternDetector):
+    """Detects unused variable assignments"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find unused variable assignments with proper scope handling
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Add parent references
+        ASTNodeVisitor.add_parent_info(tree)
+        
+        # Process each scope separately
+        self._process_scope(tree, patterns)
+        
+        return patterns
+    
+    def _process_scope(self, node, patterns):
+        """
+        Process a single scope (module, function, class)
+        
+        Args:
+            node: AST node representing a scope
+            patterns: List to collect patterns
+        """
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)):
+            # Track variables defined and used in this scope
+            defined_vars = {}  # var_name -> list of nodes
+            used_vars = set()
+            
+            # Process all statements in this scope first
+            for stmt in node.body:
+                # Find variable assignments
+                if isinstance(stmt, ast.Assign):
+                    for target in stmt.targets:
+                        if isinstance(target, ast.Name):
+                            var_name = target.id
+                            # Skip private or special variables
+                            if var_name.startswith('_') and var_name != '_':
+                                continue
+                                
+                            if var_name not in defined_vars:
+                                defined_vars[var_name] = []
+                            defined_vars[var_name].append(stmt)
+                
+                # Find usages within this statement
+                for subnode in ast.walk(stmt):
+                    if (isinstance(subnode, ast.Name) and 
+                        isinstance(subnode.ctx, ast.Load)):
+                        used_vars.add(subnode.id)
+            
+            # Report unused variables in this scope
+            for var_name, nodes in defined_vars.items():
+                if var_name not in used_vars:
+                    for node in nodes:
+                        patterns.append({
+                            'name': 'unused_variable',
+                            'description': f"Variable '{var_name}' is defined but never used",
+                            'severity': 'low',
+                            'optimization': 'remove_unused_variable',
+                            'node': node,
+                            'variable': var_name,
+                            'lineno': getattr(node, 'lineno', 0)
+                        })
+        
+        # Now process nested scopes
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.Module, ast.FunctionDef, ast.ClassDef)):
+                self._process_scope(child, patterns)
+
+
+class RedundantAssignmentDetector(PatternDetector):
+    """Detects redundant variable assignments"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find variables that are assigned a value and then immediately overwritten
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        # Add parent references
+        ASTNodeVisitor.add_parent_info(tree)
+        
+        patterns = []
+        
+        # Process each function
+        for func_node in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            # Track assignments to each variable
+            var_assignments = {}  # var_name -> [nodes]
+            
+            # Process body statements
+            for stmt in func_node.body:
+                if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                    target = stmt.targets[0]
+                    if isinstance(target, ast.Name):
+                        var_name = target.id
                         
-                        # Validate the tree after each transformation
-                        try:
-                            test_code = astor.to_source(tree)
-                            ast.parse(test_code)  # Attempt to parse to validate
-                        except Exception as e:
-                            # Revert this optimization if it produced invalid code
-                            logger.warning(f"Optimization {opt_name} produced invalid code: {str(e)}")
-                            tree = ast.parse(current_source)  # Revert to previous valid state
-                            if changes and changes[-1].startswith(opt_name):
-                                changes.pop()  # Remove the failed optimization from changes
-                except Exception as e:
-                    logger.warning(f"Error during {opt_name}: {str(e)}")
-        
-        return tree, changes, detailed_changes
-
-    def _init_transformers(self):
-        """Initialize all AST transformer classes."""
-        
-        # Dead Code Elimination Transformer
-        class DeadCodeEliminator(ast.NodeTransformer):
-            def __init__(self):
-                self.changes = []
-                self.detailed_changes = []
-                
-            def visit_If(self, node):
-                # Check for constant conditions
-                if isinstance(node.test, ast.Constant):
-                    if node.test.value:  # True condition
-                        self.changes.append("Removed dead 'else' branch")
-                        change = OptimizationChange(
-                            description="Removed unreachable 'else' branch",
-                            line_start=node.lineno,
-                            line_end=getattr(node.orelse[-1], 'end_lineno', node.lineno) if node.orelse else node.lineno,
-                            original_code=astor.to_source(node),
-                            optimized_code=astor.to_source(ast.If(node.test, node.body, []))
-                        )
-                        self.detailed_changes.append(change)
-                        return ast.If(node.test, self.generic_visit_list(node.body), [])
-                    else:  # False condition
-                        if node.orelse:
-                            self.changes.append("Removed dead 'if' branch")
-                            change = OptimizationChange(
-                                description="Removed unreachable 'if' branch",
-                                line_start=node.lineno,
-                                line_end=getattr(node.orelse[-1], 'end_lineno', node.lineno),
-                                original_code=astor.to_source(node),
-                                optimized_code=astor.to_source(ast.Module(node.orelse, type_ignores=[]))
-                            )
-                            self.detailed_changes.append(change)
-                            return self.generic_visit_list(node.orelse)
-                        else:
-                            self.changes.append("Removed dead 'if' statement")
-                            return None  # Remove the if statement entirely
-
-                # Process normally
-                self.generic_visit(node)
-                return node
-                
-            def visit_While(self, node):
-                # Check for constant conditions
-                if isinstance(node.test, ast.Constant):
-                    if not node.test.value:  # False condition
-                        self.changes.append("Removed dead 'while' loop")
-                        return None  # Remove the while loop entirely
-                
-                # Process normally
-                self.generic_visit(node)
-                return node
-                
-            def visit_Return(self, node):
-                # No need to process further statements after a return
-                return node
-                
-            def generic_visit_list(self, nodes):
-                """Visit a list of nodes and handle returns."""
-                result = []
-                for i, node in enumerate(nodes):
-                    # Skip processing after a return/break/continue
-                    if i > 0 and isinstance(nodes[i-1], (ast.Return, ast.Break, ast.Continue)):
-                        self.changes.append("Removed unreachable code after control flow statement")
-                        break
-                    
-                    visited = self.visit(node)
-                    if visited is not None:
-                        if isinstance(visited, list):
-                            result.extend(visited)
-                        else:
-                            result.append(visited)
-                return result
-                
-            def visit_Module(self, node):
-                node.body = self.generic_visit_list(node.body)
-                return node
-                
-            def visit_FunctionDef(self, node):
-                node.body = self.generic_visit_list(node.body)
-                return node
-        
-        # Store the transformers as attributes
-        self.dead_code_eliminator = DeadCodeEliminator
-
-        # Unreachable Code Removal Transformer
-        class UnreachableCodeRemover(ast.NodeTransformer):
-            def __init__(self):
-                self.changes = []
-                self.detailed_changes = []
-                
-            def visit_Module(self, node):
-                node.body = self._process_body(node.body)
-                return node
-                
-            def visit_FunctionDef(self, node):
-                node.body = self._process_body(node.body)
-                return node
-                
-            def visit_ClassDef(self, node):
-                node.body = self._process_body(node.body)
-                return node
-                
-            def visit_If(self, node):
-                node.body = self._process_body(node.body)
-                node.orelse = self._process_body(node.orelse)
-                return node
-                
-            def visit_For(self, node):
-                node.body = self._process_body(node.body)
-                node.orelse = self._process_body(node.orelse)
-                return node
-                
-            def visit_While(self, node):
-                node.body = self._process_body(node.body)
-                node.orelse = self._process_body(node.orelse)
-                return node
-                
-            def visit_Try(self, node):
-                node.body = self._process_body(node.body)
-                node.orelse = self._process_body(node.orelse)
-                node.finalbody = self._process_body(node.finalbody)
-                for handler in node.handlers:
-                    handler.body = self._process_body(handler.body)
-                return node
-                
-            def _process_body(self, body):
-                """Process a list of statements, removing unreachable code."""
-                if not body:
-                    return body
-                    
-                result = []
-                has_return = False
-                has_break = False
-                has_continue = False
-                
-                for i, node in enumerate(body):
-                    if has_return or has_break or has_continue:
-                        # This node is unreachable
-                        self.changes.append("Removed unreachable code after control flow statement")
-                        description = f"Removed unreachable code after {'return' if has_return else 'break' if has_break else 'continue'}"
-                        
-                        # Get the original code snippet
-                        try:
-                            original_code = astor.to_source(ast.Module(body[i:], type_ignores=[]))
-                        except:
-                            original_code = "# Unreachable code"
+                        # Check if this variable was just assigned
+                        if var_name in var_assignments and var_assignments[var_name]:
+                            prev_assign = var_assignments[var_name][-1]
                             
-                        change = OptimizationChange(
-                            description=description,
-                            line_start=getattr(node, 'lineno', 0),
-                            line_end=getattr(node, 'end_lineno', 0),
-                            original_code=original_code,
-                            optimized_code="# Removed unreachable code"
-                        )
-                        self.detailed_changes.append(change)
-                        break
-                    
-                    # Add this node to the result
-                    result.append(self.visit(node))
-                    
-                    # Check if this is a control flow statement that makes the next statements unreachable
-                    if isinstance(node, ast.Return):
-                        has_return = True
-                    elif isinstance(node, ast.Break):
-                        has_break = True
-                    elif isinstance(node, ast.Continue):
-                        has_continue = True
-                    elif isinstance(node, ast.Raise):
-                        # In most cases, raise makes the following code unreachable
-                        # but there can be try-except blocks, so this is a simple approximation
-                        has_return = True
+                            # Check if there's no code between the assignments
+                            if prev_assign in func_node.body:
+                                prev_idx = func_node.body.index(prev_assign)
+                                curr_idx = func_node.body.index(stmt)
+                                
+                                if curr_idx == prev_idx + 1:
+                                    patterns.append({
+                                        'name': 'redundant_assignment',
+                                        'description': f"Variable '{var_name}' is assigned and immediately overwritten",
+                                        'severity': 'low',
+                                        'optimization': 'remove_redundant_assignment',
+                                        'node': prev_assign,
+                                        'variable': var_name,
+                                        'lineno': getattr(prev_assign, 'lineno', 0)
+                                    })
                         
-                return result
-                
-        self.unreachable_code_remover = UnreachableCodeRemover
+                        # Record this assignment
+                        if var_name not in var_assignments:
+                            var_assignments[var_name] = []
+                        var_assignments[var_name].append(stmt)
+        
+        return patterns
 
-    def _dead_code_elimination(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
+
+class RangeLenLoopDetector(PatternDetector):
+    """Detects range(len(x)) loops that can be simplified"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
         """
-        Eliminate dead code from the AST.
+        Find range(len(x)) loops that can be replaced with direct iteration
         
         Args:
-            tree: AST to optimize
+            tree: Abstract Syntax Tree
             
         Returns:
-            Tuple of (optimized_tree, changes, detailed_changes)
+            List of detected patterns
         """
-        eliminator = self.dead_code_eliminator()
-        optimized_tree = eliminator.visit(copy.deepcopy(tree))
+        patterns = []
         
-        return optimized_tree, eliminator.changes, eliminator.detailed_changes
+        # Find all for loops
+        for node in ast.walk(tree):
+            if isinstance(node, ast.For):
+                # Check if it's a for i in range(len(x)) pattern
+                if self._is_range_len_loop(node):
+                    # Determine the collection being iterated
+                    collection = self._get_collection(node)
+                    collection_name = getattr(collection, 'id', None) if isinstance(collection, ast.Name) else 'collection'
+                    
+                    patterns.append({
+                        'name': 'range_len_loop',
+                        'description': f"Using range(len({collection_name})) instead of direct iteration",
+                        'severity': 'medium',
+                        'optimization': 'simplify_range_len_loop',
+                        'node': node,
+                        'collection': collection,
+                        'lineno': getattr(node, 'lineno', 0)
+                    })
         
-    def _unreachable_code_removal(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
+        return patterns
+    
+    def _is_range_len_loop(self, node: ast.For) -> bool:
         """
-        Remove unreachable code after return, break, or continue statements.
+        Check if node is a for i in range(len(x)) loop
         
         Args:
-            tree: AST to optimize
+            node: For loop node
             
         Returns:
-            Tuple of (optimized_tree, changes, detailed_changes)
+            True if it's a range(len()) loop
         """
-        remover = self.unreachable_code_remover()
-        optimized_tree = remover.visit(copy.deepcopy(tree))
+        # Check the iterator part
+        if not isinstance(node.iter, ast.Call):
+            return False
         
-        return optimized_tree, remover.changes, remover.detailed_changes
+        if not (isinstance(node.iter.func, ast.Name) and node.iter.func.id == 'range'):
+            return False
         
-    def _unused_code_removal(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
-        """Remove unused variables, imports, and functions."""
-        # Implement unused variable detection
-        class UnusedVariableFinder(ast.NodeVisitor):
-            def __init__(self):
-                self.defined = set()
-                self.used = set()
-                self.current_scope = []
-                self.functions = set()
-                self.called_functions = set()
-                self.imports = set()
-                self.used_imports = set()
-                self.imported_modules = set()
-                self.used_modules = set()
-                
-            def visit_Name(self, node):
-                if isinstance(node.ctx, ast.Store):
-                    # Variable definition
-                    self.defined.add((node.id, tuple(self.current_scope)))
-                elif isinstance(node.ctx, ast.Load):
-                    # Variable usage
-                    self.used.add((node.id, tuple(self.current_scope)))
-                    # Also mark as used in parent scopes
-                    for i in range(len(self.current_scope)):
-                        self.used.add((node.id, tuple(self.current_scope[:i])))
-                self.generic_visit(node)
-                
-            def visit_FunctionDef(self, node):
-                # Track function definitions
-                self.functions.add(node.name)
-                prev_scope = self.current_scope
-                self.current_scope = self.current_scope + [node.name]
-                self.generic_visit(node)
-                self.current_scope = prev_scope
-                
-            def visit_ClassDef(self, node):
-                # Track class definitions similar to functions
-                prev_scope = self.current_scope
-                self.current_scope = self.current_scope + [node.name]
-                self.generic_visit(node)
-                self.current_scope = prev_scope
-                
-            def visit_Call(self, node):
-                # Track function calls
-                if isinstance(node.func, ast.Name):
-                    self.called_functions.add(node.func.id)
-                elif isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
-                    # Record module usage for import tracking
-                    self.used_modules.add(node.func.value.id)
-                self.generic_visit(node)
-                
-            def visit_Import(self, node):
-                # Track imports
-                for name in node.names:
-                    if name.asname:
-                        self.imports.add(name.asname)
-                        self.imported_modules.add(name.asname)
-                    else:
-                        self.imports.add(name.name)
-                        self.imported_modules.add(name.name)
-                self.generic_visit(node)
-                
-            def visit_ImportFrom(self, node):
-                # Track from imports
-                if node.module:
-                    for name in node.names:
-                        if name.name == '*':
-                            # Wildcard imports are hard to track, consider everything as used
-                            continue
-                        imported_name = name.asname if name.asname else name.name
-                        self.imports.add(imported_name)
-                self.generic_visit(node)
-                
-            def visit_Attribute(self, node):
-                # Track attribute access for import tracking
-                if isinstance(node.value, ast.Name):
-                    self.used_modules.add(node.value.id)
-                self.generic_visit(node)
-                
-            def get_unused_variables(self):
-                """Get variables that are defined but not used."""
-                return self.defined - self.used
-                
-            def get_unused_functions(self):
-                """Get functions that are defined but not called."""
-                # Don't include "main" function as unused, since it might be an entry point
-                main_funcs = {"main", "__main__"}
-                return self.functions - self.called_functions - main_funcs
-                
-            def get_unused_imports(self):
-                """Get imports that are not used."""
-                # Modules might be used via attributes
-                active_modules = self.used_modules
-                return self.imports - self.used - active_modules
+        # Must have at least one argument
+        if not node.iter.args:
+            return False
         
-        # Create a transformer to remove unused code
-        class UnusedCodeRemover(ast.NodeTransformer):
-            def __init__(self, unused_vars, unused_funcs, unused_imports):
-                self.unused_vars = unused_vars
-                self.unused_funcs = unused_funcs
-                self.unused_imports = unused_imports
-                self.changes = []
-                self.detailed_changes = []
-                self.current_scope = []
+        # First arg must be len(x)
+        first_arg = node.iter.args[0]
+        if not isinstance(first_arg, ast.Call):
+            return False
+        
+        if not (isinstance(first_arg.func, ast.Name) and first_arg.func.id == 'len'):
+            return False
+        
+        # len() must have exactly one argument
+        return len(first_arg.args) == 1
+    
+    def _get_collection(self, node: ast.For) -> ast.AST:
+        """
+        Get the collection being iterated in range(len(collection))
+        
+        Args:
+            node: For loop node
+            
+        Returns:
+            AST node representing the collection
+        """
+        # Assume _is_range_len_loop was called and returned True
+        len_call = node.iter.args[0]
+        return len_call.args[0]
+
+
+class ListAppendLoopDetector(PatternDetector):
+    """Detects loops that build lists with append, which could use list comprehension"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find patterns where empty list + for loop with append can be list comprehension
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        # Add parent references
+        ASTNodeVisitor.add_parent_info(tree)
+        
+        patterns = []
+        
+        # Visit all nodes to find consecutive statements
+        for node in ast.walk(tree):
+            # Look for code blocks (modules, functions)
+            if isinstance(node, (ast.Module, ast.FunctionDef)):
+                self._check_block_statements(node.body, patterns)
+        
+        return patterns
+    
+    def _check_block_statements(self, statements: List[ast.stmt], patterns: List[Dict[str, Any]]) -> None:
+        """
+        Check a block of statements for the pattern with better handling of edge cases
+        
+        Args:
+            statements: List of statements to check
+            patterns: List to collect detected patterns
+        """
+        for i in range(len(statements) - 1):
+            current_stmt = statements[i]
+            next_stmt = statements[i + 1]
+            
+            # Check for list initialization
+            if not isinstance(current_stmt, ast.Assign) or len(current_stmt.targets) != 1:
+                continue
+            
+            target = current_stmt.targets[0]
+            if not isinstance(target, ast.Name):
+                continue
+            
+            target_name = target.id
+            
+            # Check if initializing an empty list
+            is_empty_list = False
+            if isinstance(current_stmt.value, ast.List) and len(current_stmt.value.elts) == 0:
+                is_empty_list = True
+            elif (hasattr(ast, 'Call') and 
+                  isinstance(current_stmt.value, ast.Call) and 
+                  isinstance(current_stmt.value.func, ast.Name) and 
+                  current_stmt.value.func.id == 'list' and 
+                  not current_stmt.value.args):
+                is_empty_list = True
                 
-            def visit_Assign(self, node):
-                # Check if all targets are unused variables
-                all_unused = all(
-                    isinstance(target, ast.Name) and 
-                    (target.id, tuple(self.current_scope)) in self.unused_vars
-                    for target in node.targets
-                )
+            if not is_empty_list:
+                continue
+            
+            # Check if followed by a loop
+            if not isinstance(next_stmt, ast.For):
+                continue
+            
+            # Check for append in the loop (direct or in if statement)
+            append_expr = None
+            conditions = []
+            
+            # Direct append in loop body
+            for body_stmt in next_stmt.body:
+                found_expr, found_conditions = self._find_append_in_stmt(body_stmt, target_name)
+                if found_expr:
+                    append_expr = found_expr
+                    conditions = found_conditions
+                    break
+            
+            if append_expr:
+                patterns.append({
+                    'name': 'list_append_loop',
+                    'description': "Loop building a list with append() can be replaced with list comprehension",
+                    'severity': 'medium',
+                    'optimization': 'convert_to_list_comprehension',
+                    'node': current_stmt,
+                    'loop_node': next_stmt,
+                    'target_name': target_name,
+                    'append_expr': append_expr,
+                    'conditions': conditions,
+                    'lineno': getattr(current_stmt, 'lineno', 0)
+                })
+    
+    def _find_append_in_stmt(self, stmt, target_name):
+        """
+        Find append call in statement or if-statement
+        
+        Args:
+            stmt: Statement to check
+            target_name: Target list name
+            
+        Returns:
+            Tuple of (append_expression, conditions)
+        """
+        # Direct append call
+        if (isinstance(stmt, ast.Expr) and 
+            isinstance(stmt.value, ast.Call) and
+            isinstance(stmt.value.func, ast.Attribute) and
+            stmt.value.func.attr == 'append' and
+            isinstance(stmt.value.func.value, ast.Name) and
+            stmt.value.func.value.id == target_name and
+            len(stmt.value.args) == 1):
+            
+            return stmt.value.args[0], []
+        
+        # If statement with append in body
+        if isinstance(stmt, ast.If):
+            for if_stmt in stmt.body:
+                expr, _ = self._find_append_in_stmt(if_stmt, target_name)
+                if expr:
+                    return expr, [stmt.test]
+            
+            # Try else clause too
+            if stmt.orelse:
+                for else_stmt in stmt.orelse:
+                    expr, _ = self._find_append_in_stmt(else_stmt, target_name)
+                    if expr:
+                        # Negate the condition for else
+                        negated_test = ast.UnaryOp(
+                            op=ast.Not(),
+                            operand=stmt.test
+                        )
+                        return expr, [negated_test]
+        
+        return None, []
+
+
+class EmptyLoopDetector(PatternDetector):
+    """Detects empty or pass-only loops"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find loops that do nothing
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Find all for and while loops
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.For, ast.While)):
+                if not node.body or all(isinstance(stmt, ast.Pass) for stmt in node.body):
+                    loop_type = "for" if isinstance(node, ast.For) else "while"
+                    patterns.append({
+                        'name': 'empty_loop',
+                        'description': f"{loop_type.capitalize()} loop contains only 'pass' or is empty",
+                        'severity': 'medium',
+                        'optimization': 'remove_empty_loop',
+                        'node': node,
+                        'lineno': getattr(node, 'lineno', 0)
+                    })
+        
+        return patterns
+
+
+class DeadCodeDetector(PatternDetector):
+    """Detects code after return statements"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find code that will never execute (after return)
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Find all functions
+        for func_node in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            # Visit each statement in function body
+            for i, stmt in enumerate(func_node.body):
+                if isinstance(stmt, ast.Return) and i < len(func_node.body) - 1:
+                    # Found return with code after it
+                    patterns.append({
+                        'name': 'dead_code',
+                        'description': "Code after return statement will never execute",
+                        'severity': 'medium',
+                        'optimization': 'remove_dead_code',
+                        'node': stmt,
+                        'function_node': func_node,
+                        'return_index': i,
+                        'dead_statements': func_node.body[i+1:],
+                        'lineno': getattr(stmt, 'lineno', 0)
+                    })
+                    # Only report the first instance per function
+                    break
+        
+        return patterns
+
+
+class RedundantComparisonDetector(PatternDetector):
+    """Detects redundant comparisons with True/False"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find comparisons like 'x == True' or 'x == False'
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Find all comparisons
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Compare) and len(node.ops) == 1:
+                # Look for == or is
+                if not isinstance(node.ops[0], (ast.Eq, ast.Is)):
+                    continue
                 
-                if all_unused:
-                    # Remove assignment if all targets are unused
-                    self.changes.append(f"Removed unused variable assignment")
+                # Check both sides of the comparison
+                for side, other_side in [(node.left, node.comparators[0]), 
+                                         (node.comparators[0], node.left)]:
+                    # Check if one side is True/False
+                    is_true = RuleUtils.is_literal_true(side)
+                    is_false = RuleUtils.is_literal_false(side)
+                    
+                    if is_true or is_false:
+                        patterns.append({
+                            'name': 'redundant_comparison',
+                            'description': f"Redundant comparison with {'True' if is_true else 'False'}",
+                            'severity': 'low',
+                            'optimization': 'simplify_boolean_comparison',
+                            'node': node,
+                            'is_true_comparison': is_true,
+                            'expression': other_side,
+                            'lineno': getattr(node, 'lineno', 0)
+                        })
+                        break  # Only report once per comparison
+        
+        return patterns
+
+
+class StringConcatDetector(PatternDetector):
+    """Detects inefficient string concatenation in loops"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find string concatenation in loops that could use join()
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        # Add parent references
+        ASTNodeVisitor.add_parent_info(tree)
+        
+        patterns = []
+        
+        # Visit all nodes to find consecutive statements
+        for node in ast.walk(tree):
+            # Look for code blocks (modules, functions)
+            if isinstance(node, (ast.Module, ast.FunctionDef)):
+                self._check_block_statements(node.body, patterns)
+        
+        return patterns
+    
+    def _check_block_statements(self, statements: List[ast.stmt], patterns: List[Dict[str, Any]]) -> None:
+        """
+        Check block statements for string concatenation pattern
+        
+        Args:
+            statements: List of statements to check
+            patterns: List to collect detected patterns
+        """
+        for i in range(len(statements) - 1):  # Need at least 2 consecutive statements
+            # Check for empty string + for loop with +=
+            current_stmt = statements[i]
+            next_stmt = statements[i + 1]
+            
+            # First statement must assign empty string
+            if not isinstance(current_stmt, ast.Assign) or len(current_stmt.targets) != 1:
+                continue
+            
+            target = current_stmt.targets[0]
+            if not isinstance(target, ast.Name):
+                continue
+            
+            target_name = target.id
+            
+            # Check if it's assigning an empty string
+            is_empty_string = False
+            if isinstance(current_stmt.value, ast.Str) and current_stmt.value.s == '':
+                is_empty_string = True
+            elif (hasattr(ast, 'Constant') and 
+                  isinstance(current_stmt.value, ast.Constant) and 
+                  current_stmt.value.value == ''):
+                is_empty_string = True
+                
+            if not is_empty_string:
+                continue
+            
+            # Next statement must be a for loop
+            if not isinstance(next_stmt, ast.For):
+                continue
+            
+            # Loop must contain += for strings
+            concat_expr = self._find_string_concat(next_stmt, target_name)
+            if not concat_expr:
+                continue
+            
+            # Found a match!
+            patterns.append({
+                'name': 'string_concat_in_loop',
+                'description': "String concatenation in loop can be replaced with join()",
+                'severity': 'medium',
+                'optimization': 'string_concat_to_join',
+                'node': current_stmt,
+                'loop_node': next_stmt,
+                'target_name': target_name,
+                'concat_expr': concat_expr,
+                'lineno': getattr(current_stmt, 'lineno', 0)
+            })
+    
+    def _find_string_concat(self, loop_node: ast.For, target_name: str) -> Optional[ast.expr]:
+        """
+        Find string concatenation inside loop
+        
+        Args:
+            loop_node: For loop node
+            target_name: Target string variable name
+            
+        Returns:
+            Expression being concatenated or None
+        """
+        for stmt in loop_node.body:
+            if (isinstance(stmt, ast.AugAssign) and 
+                isinstance(stmt.op, ast.Add) and
+                isinstance(stmt.target, ast.Name) and
+                stmt.target.id == target_name):
+                
+                return stmt.value
+        
+        return None
+
+
+class BooleanReturnDetector(PatternDetector):
+    """Detects if/else with boolean returns that can be simplified"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find patterns like 'if x: return True else: return False'
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Find all if statements
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If):
+                # Must have both if and else clauses
+                if not node.body or not node.orelse:
+                    continue
+                
+                # Both bodies must be exactly one statement
+                if len(node.body) != 1 or len(node.orelse) != 1:
+                    continue
+                
+                # Both statements must be returns
+                if_stmt = node.body[0]
+                else_stmt = node.orelse[0]
+                
+                if not isinstance(if_stmt, ast.Return) or not isinstance(else_stmt, ast.Return):
+                    continue
+                
+                # Check if returning True/False or False/True
+                if_returns_true = self._is_return_true(if_stmt)
+                if_returns_false = self._is_return_false(if_stmt)
+                
+                else_returns_true = self._is_return_true(else_stmt)
+                else_returns_false = self._is_return_false(else_stmt)
+                
+                # Pattern must be: return True/False or return False/True
+                if (if_returns_true and else_returns_false) or (if_returns_false and else_returns_true):
+                    patterns.append({
+                        'name': 'boolean_return',
+                        'description': "if/else with boolean returns can be simplified",
+                        'severity': 'medium',
+                        'optimization': 'simplify_boolean_return',
+                        'node': node,
+                        'returns_true_in_if': if_returns_true,
+                        'condition': node.test,
+                        'lineno': getattr(node, 'lineno', 0)
+                    })
+        
+        return patterns
+    
+    def _is_return_true(self, node: ast.Return) -> bool:
+        """
+        Check if node returns True
+        
+        Args:
+            node: Return statement node
+            
+        Returns:
+            True if it returns the literal True
+        """
+        return RuleUtils.is_literal_true(node.value)
+    
+    def _is_return_false(self, node: ast.Return) -> bool:
+        """
+        Check if node returns False
+        
+        Args:
+            node: Return statement node
+            
+        Returns:
+            True if it returns the literal False
+        """
+        return RuleUtils.is_literal_false(node.value)
+
+
+class UniqueValuesDetector(PatternDetector):
+    """Detects inefficient uniqueness filtering implementations"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find uniqueness filtering pattern that could use set()
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # First approach: check function names
+        for func_node in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            # Check if function name suggests uniqueness
+            if 'unique' in func_node.name.lower() or 'distinct' in func_node.name.lower():
+                # Check for algorithm pattern
+                has_empty_list = False
+                has_loop = False
+                has_not_in_check = False
+                has_append = False
+                result_var = None
+                
+                # Find empty list initialization
+                for stmt in func_node.body:
+                    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                        if (isinstance(stmt.targets[0], ast.Name) and 
+                            isinstance(stmt.value, ast.List) and 
+                            len(stmt.value.elts) == 0):
+                            has_empty_list = True
+                            result_var = stmt.targets[0].id
+                            break
+                
+                if not has_empty_list or not result_var:
+                    continue
+                
+                # Look for for loop
+                for stmt in func_node.body:
+                    if isinstance(stmt, ast.For):
+                        has_loop = True
+                        
+                        # Look for not in check + append in loop body
+                        for body_stmt in ast.walk(stmt):
+                            if (isinstance(body_stmt, ast.Compare) and 
+                                any(isinstance(op, ast.NotIn) for op in body_stmt.ops)):
+                                # Check if the right operand is our result list
+                                for comparator in body_stmt.comparators:
+                                    if (isinstance(comparator, ast.Name) and 
+                                        comparator.id == result_var):
+                                        has_not_in_check = True
+                                        break
+                            
+                            if (isinstance(body_stmt, ast.Call) and 
+                                isinstance(body_stmt.func, ast.Attribute) and
+                                body_stmt.func.attr == 'append' and
+                                isinstance(body_stmt.func.value, ast.Name) and
+                                body_stmt.func.value.id == result_var):
+                                has_append = True
+                        
+                        break  # Only need to check one for loop
+                
+                # Check if it matches the inefficient pattern
+                if has_empty_list and has_loop and has_not_in_check and has_append:
+                    patterns.append({
+                        'name': 'inefficient_unique_values',
+                        'description': "Inefficient uniqueness filtering that could use set()",
+                        'severity': 'medium',
+                        'optimization': 'optimize_unique_values',
+                        'node': func_node,
+                        'result_var': result_var,
+                        'lineno': getattr(func_node, 'lineno', 0)
+                    })
+        
+        # Second approach: look for pattern even without suggestive function name
+        for func_node in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            # Check for empty list + for loop with not in check + append
+            if len(func_node.body) >= 3:  # Need at least init, loop, return
+                # Try to find empty list initialization
+                init_stmt = func_node.body[0]
+                if (isinstance(init_stmt, ast.Assign) and 
+                    len(init_stmt.targets) == 1 and
+                    isinstance(init_stmt.targets[0], ast.Name) and
+                    isinstance(init_stmt.value, ast.List) and
+                    len(init_stmt.value.elts) == 0):
+                    
+                    result_var = init_stmt.targets[0].id
+                    
+                    # Look for for loop
+                    if len(func_node.body) > 1 and isinstance(func_node.body[1], ast.For):
+                        for_node = func_node.body[1]
+                        
+                        # Check for if item not in result: result.append(item)
+                        has_pattern = False
+                        if len(for_node.body) == 1 and isinstance(for_node.body[0], ast.If):
+                            if_node = for_node.body[0]
+                            
+                            # Check condition is "not in"
+                            if (isinstance(if_node.test, ast.Compare) and
+                                len(if_node.test.ops) == 1 and
+                                isinstance(if_node.test.ops[0], ast.NotIn) and
+                                isinstance(if_node.test.comparators[0], ast.Name) and
+                                if_node.test.comparators[0].id == result_var):
+                                
+                                # Check body has append
+                                if len(if_node.body) == 1:
+                                    stmt = if_node.body[0]
+                                    if (isinstance(stmt, ast.Expr) and
+                                        isinstance(stmt.value, ast.Call) and
+                                        isinstance(stmt.value.func, ast.Attribute) and
+                                        stmt.value.func.attr == 'append' and
+                                        isinstance(stmt.value.func.value, ast.Name) and
+                                        stmt.value.func.value.id == result_var):
+                                        
+                                        has_pattern = True
+                        
+                        # Check last statement returns the result
+                        last_stmt = func_node.body[-1]
+                        if (isinstance(last_stmt, ast.Return) and
+                            isinstance(last_stmt.value, ast.Name) and
+                            last_stmt.value.id == result_var and
+                            has_pattern and
+                            # Make sure we haven't already caught this function
+                            not any(p.get('node') == func_node for p in patterns)):
+                            
+                            patterns.append({
+                                'name': 'inefficient_unique_values',
+                                'description': "Inefficient uniqueness filtering that could use set()",
+                                'severity': 'medium',
+                                'optimization': 'optimize_unique_values',
+                                'node': func_node,
+                                'result_var': result_var,
+                                'lineno': getattr(func_node, 'lineno', 0)
+                            })
+        
+        return patterns
+
+
+class RedundantPassDetector(PatternDetector):
+    """Detects redundant pass statements in if blocks"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find if conditions with empty pass
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Find all if statements
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If):
+                # Check if the body is just a pass statement
+                if len(node.body) == 1 and isinstance(node.body[0], ast.Pass) and node.orelse:
+                    patterns.append({
+                        'name': 'redundant_pass',
+                        'description': "If statement with only 'pass' can be inverted",
+                        'severity': 'low',
+                        'optimization': 'remove_redundant_pass',
+                        'node': node,
+                        'condition': node.test,
+                        'else_body': node.orelse,
+                        'lineno': getattr(node, 'lineno', 0)
+                    })
+        
+        return patterns
+
+
+class ChainedComparisonDetector(PatternDetector):
+    """Detects chained equality comparisons that can use 'in'"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find patterns like x == 1 or x == 2 or x == 3
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Find all boolean operations with 'or'
+        for node in ast.walk(tree):
+            if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+                # Check for chained equality tests with OR
+                chained = self._is_chained_equality(node)
+                if chained:
+                    patterns.append({
+                        'name': 'chained_comparison',
+                        'description': "Chained equality comparisons can use 'in' operator",
+                        'severity': 'medium',
+                        'optimization': 'use_in_operator',
+                        'node': node,
+                        'variable': chained['variable'],
+                        'values': chained['values'],
+                        'lineno': getattr(node, 'lineno', 0)
+                    })
+        
+        return patterns
+        
+    def _is_chained_equality(self, node):
+        """
+        Check if node is x == 1 or x == 2 or x == 3 pattern
+        
+        Args:
+            node: BoolOp node with or operator
+            
+        Returns:
+            Dict with variable and values if pattern matches, None otherwise
+        """
+        if not isinstance(node, ast.BoolOp) or not isinstance(node.op, ast.Or):
+            return None
+            
+        # Check all values in the chain
+        variable_id = None
+        values = []
+        
+        for value in node.values:
+            if not isinstance(value, ast.Compare) or len(value.ops) != 1 or not isinstance(value.ops[0], ast.Eq):
+                return None
+                
+            # Get the variable being compared
+            if isinstance(value.left, ast.Name):
+                current_var = value.left.id
+                
+                # First comparison establishes the variable
+                if variable_id is None:
+                    variable_id = current_var
+                # Subsequent comparisons must use same variable
+                elif variable_id != current_var:
                     return None
                     
+                # Get the value being compared to
+                if len(value.comparators) == 1:
+                    comparator = value.comparators[0]
+                    
+                    # Handle different types of constants
+                    if RuleUtils.is_constant_node(comparator):
+                        values.append(RuleUtils.get_constant_value(comparator))
+                    else:
+                        # Complex expression - not a good candidate for optimization
+                        return None
+                else:
+                    return None
+            else:
+                return None
+                
+        # Must have at least 2 values to be worth converting
+        if len(values) >= 2:
+            return {'variable': variable_id, 'values': values}
+            
+        return None
+
+
+class SingleUseVariableDetector(PatternDetector):
+    """Detects variables used only once in returns"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find variables that are used only once in a return statement
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Add parent references
+        ASTNodeVisitor.add_parent_info(tree)
+        
+        # Process each function definition
+        for func_node in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            # Track variable definitions and uses
+            var_defs = {}  # var_name -> node
+            var_uses = {}  # var_name -> [nodes]
+            
+            # First pass: collect definitions
+            for i, stmt in enumerate(func_node.body):
+                if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                    if isinstance(stmt.targets[0], ast.Name):
+                        var_name = stmt.targets[0].id
+                        var_defs[var_name] = (stmt, i)
+            
+            # Second pass: collect uses
+            for node in ast.walk(func_node):
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                    var_name = node.id
+                    if var_name in var_defs:
+                        if var_name not in var_uses:
+                            var_uses[var_name] = []
+                        var_uses[var_name].append(node)
+            
+            # Find variables used exactly once in a return statement
+            for var_name, (def_node, def_index) in var_defs.items():
+                uses = var_uses.get(var_name, [])
+                if len(uses) == 1:
+                    use_node = uses[0]
+                    parent = getattr(use_node, 'parent', None)
+                    
+                    if isinstance(parent, ast.Return):
+                        # Check if the return is the only use
+                        if (isinstance(parent.value, ast.Name) and 
+                            parent.value.id == var_name):
+                            
+                            # Find the return statement's index
+                            return_index = None
+                            for i, stmt in enumerate(func_node.body):
+                                if stmt is parent:
+                                    return_index = i
+                                    break
+                            
+                            # Only consider if return comes after definition
+                            if return_index is not None and return_index > def_index:
+                                # Check if there are no other statements between definition and return
+                                if return_index == def_index + 1:
+                                    patterns.append({
+                                        'name': 'single_use_variable',
+                                        'description': f"Variable '{var_name}' is only used once in return",
+                                        'severity': 'low',
+                                        'optimization': 'inline_single_use_variable',
+                                        'node': def_node,
+                                        'return_node': parent,
+                                        'variable': var_name,
+                                        'lineno': getattr(def_node, 'lineno', 0)
+                                    })
+        
+        return patterns
+
+
+class NestedIfDetector(PatternDetector):
+    """Detects nested if statements that can be combined"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find patterns like if a: if b: return c
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Add parent info
+        ASTNodeVisitor.add_parent_info(tree)
+        
+        # Find all if statements
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If):
+                # Check if it has exactly one statement in body
+                if len(node.body) == 1 and isinstance(node.body[0], ast.If):
+                    inner_if = node.body[0]
+                    
+                    # Inner if should have a simple body
+                    if len(inner_if.body) > 0 and not inner_if.orelse:
+                        patterns.append({
+                            'name': 'nested_if',
+                            'description': "Nested if statements can be combined",
+                            'severity': 'low',
+                            'optimization': 'combine_nested_if',
+                            'node': node,
+                            'inner_if': inner_if,
+                            'outer_test': node.test,
+                            'inner_test': inner_if.test,
+                            'inner_body': inner_if.body,
+                            'lineno': getattr(node, 'lineno', 0)
+                        })
+        
+        return patterns
+
+
+class UnusedImportDetector(PatternDetector):
+    """Detects unused imports"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find imports that are not used in the code
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Collect import names and their nodes
+        imports = {}  # name -> node
+        
+        # First pass: collect all imports
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for name in node.names:
+                    asname = name.asname or name.name
+                    imports[asname] = (node, name)
+            elif isinstance(node, ast.ImportFrom):
+                for name in node.names:
+                    asname = name.asname or name.name
+                    imports[asname] = (node, name)
+        
+        # Second pass: check usage
+        used_names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                used_names.add(node.id)
+            # Also check attribute accesses for module usage
+            elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                used_names.add(node.value.id)
+        
+        # Find unused imports (excluding special names)
+        for name, (node, import_name) in imports.items():
+            # Skip imports used for their side effects or special names
+            if name.startswith('_') or name in ('__future__', 'typing', 'sys', 'os'):
+                continue
+                
+            if name not in used_names:
+                # For ImportFrom, get the module info
+                module_name = None
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    module_name = node.module
+                
+                patterns.append({
+                    'name': 'unused_import',
+                    'description': f"Import '{name}'" + (f" from '{module_name}'" if module_name else "") + " is not used",
+                    'severity': 'low',
+                    'optimization': 'remove_unused_import',
+                    'node': node,
+                    'import_name': name,
+                    'import_node': import_name,
+                    'lineno': getattr(node, 'lineno', 0)
+                })
+        
+        return patterns
+
+
+class NotNotToBoolDetector(PatternDetector):
+    """Detects not not value pattern that can be simplified to bool(value)"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find not not value patterns
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Look for UnaryOp(not, UnaryOp(not, value))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.UnaryOp) and 
+                isinstance(node.op, ast.Not) and
+                isinstance(node.operand, ast.UnaryOp) and 
+                isinstance(node.operand.op, ast.Not)):
+                
+                patterns.append({
+                    'name': 'not_not_pattern',
+                    'description': "not not value can be simplified to bool(value)",
+                    'severity': 'low',
+                    'optimization': 'convert_to_bool',
+                    'node': node,
+                    'value': node.operand.operand,
+                    'lineno': getattr(node, 'lineno', 0)
+                })
+        
+        return patterns
+
+
+class RedundantParenthesesDetector(PatternDetector):
+    """Detects redundant parentheses in expressions (limited capability)"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find redundant parentheses in code (based on AST inspection)
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Unfortunately, AST doesn't preserve parentheses information
+        # However, we can still detect some patterns
+        
+        # Look for single-element tuples that might be redundant parentheses
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Tuple) and len(node.elts) == 1:
+                # This might be a redundant parenthesized expression
+                patterns.append({
+                    'name': 'redundant_parentheses',
+                    'description': "Redundant parentheses around expression",
+                    'severity': 'low',
+                    'optimization': 'remove_redundant_parentheses',
+                    'node': node,
+                    'expression': node.elts[0],
+                    'lineno': getattr(node, 'lineno', 0)
+                })
+                
+        # Look for return statements where the value is a parenthesized simple expression
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Return):
+                if isinstance(node.value, ast.Name) or RuleUtils.is_constant_node(node.value):
+                    # Might have redundant parentheses but we can't tell from AST
+                    # In a future version, we might use the original source text
+                    pass
+                    
+        return patterns
+
+
+class FormatToFStringDetector(PatternDetector):
+    """Detects string format() calls that can be converted to f-strings"""
+    
+    def _detect_in_ast(self, tree: ast.AST) -> List[Dict[str, Any]]:
+        """
+        Find string format calls that can be converted to f-strings
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+        
+        # Look for str.format() calls
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and
+                isinstance(node.func, ast.Attribute) and
+                node.func.attr == 'format'):
+                
+                # Get the string template
+                if isinstance(node.func.value, ast.Str) or (
+                    hasattr(ast, 'Constant') and
+                    isinstance(node.func.value, ast.Constant) and
+                    isinstance(node.func.value.value, str)):
+                    
+                    # Get the format string
+                    format_str = (node.func.value.s if isinstance(node.func.value, ast.Str)
+                                 else node.func.value.value)
+                    
+                    # Check if it has format placeholders
+                    if '{' in format_str and '}' in format_str:
+                        # Try to analyze the placeholders and arguments
+                        args = node.args
+                        kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+                        
+                        # Simple check for Python 3.6+ compatibility
+                        if sys.version_info >= (3, 6):
+                            patterns.append({
+                                'name': 'format_to_fstring',
+                                'description': "String format() can be converted to f-string",
+                                'severity': 'low',
+                                'optimization': 'convert_to_fstring',
+                                'node': node,
+                                'format_str': format_str,
+                                'args': args,
+                                'kwargs': kwargs,
+                                'lineno': getattr(node, 'lineno', 0)
+                            })
+        
+        return patterns
+    
+###########################################
+# PART 3: Code Transformers for Optimizations
+###########################################
+
+class UnusedVariableTransformer(CodeTransformer):
+    """Removes unused variable assignments"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """Remove unused variable assignments"""
+        # First detect unused variables
+        detector = UnusedVariableDetector()
+        patterns = detector.detect(self._ast_to_code(tree))
+        
+        if not patterns:
+            return tree
+        
+        # Get list of unused variable names
+        unused_vars = set(p['variable'] for p in patterns)
+        
+        # Create the transformer
+        class RemoveUnusedTransformer(ast.NodeTransformer):
+            def __init__(self):
+                self.removed_count = 0
+            
+            def visit_Assign(self, node):
+                # Check if this is an assignment to an unused variable
+                if (len(node.targets) == 1 and 
+                    isinstance(node.targets[0], ast.Name) and
+                    node.targets[0].id in unused_vars):
+                    
+                    self.removed_count += 1
+                    return None  # Remove this node
+                
                 return self.generic_visit(node)
-                
-            def visit_FunctionDef(self, node):
-                # Check if function is unused
-                if node.name in self.unused_funcs:
-                    self.changes.append(f"Removed unused function {node.name}")
-                    return None
-                    
-                # Process function body
-                prev_scope = self.current_scope
-                self.current_scope = self.current_scope + [node.name]
-                self.generic_visit(node)
-                self.current_scope = prev_scope
-                return node
-                
-            def visit_Import(self, node):
-                # Filter out unused imports
-                new_names = []
-                for name in node.names:
-                    module_name = name.asname if name.asname else name.name
-                    if module_name not in self.unused_imports:
-                        new_names.append(name)
-                    else:
-                        self.changes.append(f"Removed unused import {module_name}")
-                
-                if not new_names:
-                    return None
-                    
-                node.names = new_names
-                return node
-                
-            def visit_ImportFrom(self, node):
-                # Filter out unused from imports
-                new_names = []
-                for name in node.names:
-                    if name.name == '*':
-                        # Don't remove wildcard imports
-                        new_names.append(name)
-                        continue
-                        
-                    import_name = name.asname if name.asname else name.name
-                    if import_name not in self.unused_imports:
-                        new_names.append(name)
-                    else:
-                        self.changes.append(f"Removed unused import {import_name}")
-                
-                if not new_names:
-                    return None
-                    
-                node.names = new_names
-                return node
         
-        # Find unused code
-        finder = UnusedVariableFinder()
-        finder.visit(tree)
+        # Apply transformation
+        transformer = RemoveUnusedTransformer()
+        new_tree = transformer.visit(copy.deepcopy(tree))
         
-        unused_vars = finder.get_unused_variables()
-        unused_funcs = finder.get_unused_functions()
-        unused_imports = finder.get_unused_imports()
-        
-        # Remove unused code
-        remover = UnusedCodeRemover(unused_vars, unused_funcs, unused_imports)
-        optimized_tree = remover.visit(copy.deepcopy(tree))
-        
-        return optimized_tree, remover.changes, remover.detailed_changes
+        logger.info(f"Removed {transformer.removed_count} unused variable assignments")
+        return new_tree
+
+
+class RedundantAssignmentTransformer(CodeTransformer):
+    """Removes redundant variable assignments"""
     
-    def _constant_folding(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
-        """Perform constant folding and propagation."""
-        class ConstantFolder(ast.NodeTransformer):
-            def __init__(self):
-                self.changes = []
-                self.detailed_changes = []
-                self.constants = {}  # Maps variable names to constant values
-                self.scope_stack = []  # Stack of scopes for constant tracking
-                self.scope_constants = [{}]  # Constants for each scope
-                
-            def visit_Module(self, node):
-                self.scope_stack.append('module')
-                self.scope_constants.append({})
-                result = self.generic_visit(node)
-                self.scope_stack.pop()
-                self.scope_constants.pop()
-                return result
-                
-            def visit_FunctionDef(self, node):
-                # Enter a new scope
-                self.scope_stack.append(node.name)
-                self.scope_constants.append({})
-                # Process the function body
-                new_node = ast.FunctionDef(
-                    name=node.name,
-                    args=node.args,
-                    body=[self.visit(stmt) for stmt in node.body],
-                    decorator_list=node.decorator_list,
-                    returns=node.returns
-                )
-                # Exit the scope
-                self.scope_stack.pop()
-                self.scope_constants.pop()
-                return new_node
-                
-            def visit_BinOp(self, node):
-                # Visit operands first
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Remove redundant assignments
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = RedundantAssignmentDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        # Get the line numbers of statements to remove
+        nodes_to_remove = set(pattern['node'].lineno for pattern in patterns if hasattr(pattern['node'], 'lineno'))
+        
+        # For each function definition in the tree
+        for func_node in [n for n in ast.walk(tree_copy) if isinstance(n, ast.FunctionDef)]:
+            # Filter the function body to remove the redundant assignments
+            func_node.body = [
+                stmt for stmt in func_node.body 
+                if not (isinstance(stmt, ast.Assign) and 
+                        hasattr(stmt, 'lineno') and 
+                        stmt.lineno in nodes_to_remove)
+            ]
+        
+        logger.info(f"Removed {len(patterns)} redundant assignments")
+        return tree_copy
+
+
+class RangeLenLoopTransformer(CodeTransformer):
+    """Transforms range(len(x)) loops to direct iteration"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Convert range(len(x)) loops to direct iteration
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = RangeLenLoopDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        # Track transformed count
+        transformed_count = 0
+        
+        class RangeLenTransformer(ast.NodeTransformer):
+            def visit_For(self, node):
+                # Process any nested structures first
                 self.generic_visit(node)
                 
-                # If both operands are constants, compute the result
-                if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
-                    try:
-                        # Compute the operation
-                        if isinstance(node.op, ast.Add):
-                            result = node.left.value + node.right.value
-                        elif isinstance(node.op, ast.Sub):
-                            result = node.left.value - node.right.value
-                        elif isinstance(node.op, ast.Mult):
-                            result = node.left.value * node.right.value
-                        elif isinstance(node.op, ast.Div):
-                            result = node.left.value / node.right.value
-                        elif isinstance(node.op, ast.FloorDiv):
-                            result = node.left.value // node.right.value
-                        elif isinstance(node.op, ast.Mod):
-                            result = node.left.value % node.right.value
-                        elif isinstance(node.op, ast.Pow):
-                            result = node.left.value ** node.right.value
-                        elif isinstance(node.op, ast.LShift):
-                            result = node.left.value << node.right.value
-                        elif isinstance(node.op, ast.RShift):
-                            result = node.left.value >> node.right.value
-                        elif isinstance(node.op, ast.BitOr):
-                            result = node.left.value | node.right.value
-                        elif isinstance(node.op, ast.BitXor):
-                            result = node.left.value ^ node.right.value
-                        elif isinstance(node.op, ast.BitAnd):
-                            result = node.left.value & node.right.value
-                        else:
-                            return node  # Unsupported operation
-                            
-                        self.changes.append("Constant folding applied")
+                # Check if this is one of our patterns
+                for pattern in patterns:
+                    if (hasattr(pattern['node'], 'lineno') and 
+                        hasattr(node, 'lineno') and 
+                        pattern['node'].lineno == node.lineno):
                         
-                        # Create change record
-                        change = OptimizationChange(
-                            description=f"Constant folding: {node.left.value} op {node.right.value} -> {result}",
-                            line_start=getattr(node, 'lineno', 0),
-                            line_end=getattr(node, 'end_lineno', 0),
-                            original_code=astor.to_source(node),
-                            optimized_code=str(result)
+                        # Create a new loop that iterates directly over the collection
+                        new_node = ast.For(
+                            target=ast.Name(id='item', ctx=ast.Store()),
+                            iter=pattern['collection'],
+                            body=node.body,
+                            orelse=node.orelse
                         )
-                        self.detailed_changes.append(change)
                         
-                        return ast.Constant(value=result)
-                    except Exception as e:
-                        # Operation failed (e.g., division by zero)
-                        return node
+                        # Copy location info
+                        ast.copy_location(new_node, node)
                         
-                return node
+                        nonlocal transformed_count
+                        transformed_count += 1
+                        return new_node
                 
-            def visit_Assign(self, node):
-                # Visit right side first
-                node.value = self.visit(node.value)
-                
-                # If right side is a constant, track it for propagation
-                if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Constant):
-                    var_name = node.targets[0].id
-                    self.scope_constants[-1][var_name] = node.value.value
-                    
-                return node
-                
-            def visit_Name(self, node):
-                # Replace variable references with known constants
-                if isinstance(node.ctx, ast.Load):
-                    # Check current scope first, then outer scopes
-                    for scope in reversed(self.scope_constants):
-                        if node.id in scope:
-                            self.changes.append(f"Propagated constant for {node.id}")
-                            
-                            # Create change record
-                            change = OptimizationChange(
-                                description=f"Constant propagation: {node.id} -> {scope[node.id]}",
-                                line_start=getattr(node, 'lineno', 0),
-                                line_end=getattr(node, 'end_lineno', 0),
-                                original_code=node.id,
-                                optimized_code=str(scope[node.id])
-                            )
-                            self.detailed_changes.append(change)
-                            
-                            return ast.Constant(value=scope[node.id])
-                    
-                return node
-                
-            def visit_Compare(self, node):
-                # Process left side and comparators
-                node.left = self.visit(node.left)
-                node.comparators = [self.visit(comparator) for comparator in node.comparators]
-                
-                # If all values are constants, compute the result
-                if isinstance(node.left, ast.Constant) and all(isinstance(comp, ast.Constant) for comp in node.comparators):
-                    try:
-                        # Save the left value
-                        left_val = node.left.value
-                        result = True
-                        
-                        # Process each comparison operation in sequence
-                        for i, (op, right_val) in enumerate(zip(node.ops, node.comparators)):
-                            right_val = right_val.value
-                            
-                            # Perform the comparison
-                            if isinstance(op, ast.Eq):
-                                result = result and (left_val == right_val)
-                            elif isinstance(op, ast.NotEq):
-                                result = result and (left_val != right_val)
-                            elif isinstance(op, ast.Lt):
-                                result = result and (left_val < right_val)
-                            elif isinstance(op, ast.LtE):
-                                result = result and (left_val <= right_val)
-                            elif isinstance(op, ast.Gt):
-                                result = result and (left_val > right_val)
-                            elif isinstance(op, ast.GtE):
-                                result = result and (left_val >= right_val)
-                            elif isinstance(op, ast.Is):
-                                result = result and (left_val is right_val)
-                            elif isinstance(op, ast.IsNot):
-                                result = result and (left_val is not right_val)
-                            elif isinstance(op, ast.In):
-                                result = result and (left_val in right_val)
-                            elif isinstance(op, ast.NotIn):
-                                result = result and (left_val not in right_val)
-                            else:
-                                # Unsupported operation
-                                return node
-                                
-                            # For chained comparison (a < b < c), left_val becomes the right_val
-                            left_val = right_val
-                            
-                            # Short-circuit if we know the result is False
-                            if not result:
-                                break
-                                
-                        self.changes.append("Constant folding applied to comparison")
-                        return ast.Constant(value=result)
-                    except:
-                        # Operation failed
-                        return node
-                    
                 return node
         
-        # Apply constant folding
-        folder = ConstantFolder()
-        optimized_tree = folder.visit(copy.deepcopy(tree))
+        # Apply transformation
+        transformer = RangeLenTransformer()
+        result = transformer.visit(tree_copy)
         
-        return optimized_tree, folder.changes, folder.detailed_changes
+        logger.info(f"Transformed {transformed_count} range(len()) loops")
+        return result
+
+
+class ListComprehensionTransformer(CodeTransformer):
+    """Transforms list append loops to list comprehensions"""
     
-    def _simplify_conditionals(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
-        """Simplify conditional expressions and nested if statements."""
-        class ConditionalSimplifier(ast.NodeTransformer):
-            def __init__(self):
-                self.changes = []
-                self.detailed_changes = []
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Convert list append loops to list comprehensions
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = ListAppendLoopDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        # Track pattern nodes by lineno
+        pattern_map = {}
+        for pattern in patterns:
+            if hasattr(pattern['node'], 'lineno'):
+                pattern_map[pattern['node'].lineno] = pattern
+        
+        # Process each block that might contain our patterns
+        for node in ast.walk(tree_copy):
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and hasattr(node, 'body'):
+                self._transform_block(node.body, pattern_map)
+        
+        logger.info(f"Transformed {len(patterns)} list append loops to comprehensions")
+        return tree_copy
+    
+    def _transform_block(self, statements: List[ast.stmt], pattern_map: Dict[int, Dict[str, Any]]) -> None:
+        """
+        Transform list append patterns in a block
+        
+        Args:
+            statements: List of statements to transform
+            pattern_map: Map of patterns by line number
+        """
+        i = 0
+        while i < len(statements) - 1:
+            # Check if current statement is part of a pattern
+            current_stmt = statements[i]
+            next_stmt = statements[i + 1]
+            
+            # Try to match by line number
+            if (hasattr(current_stmt, 'lineno') and 
+                current_stmt.lineno in pattern_map and 
+                isinstance(next_stmt, ast.For)):
                 
-            def visit_If(self, node):
+                pattern = pattern_map[current_stmt.lineno]
+                
+                # Create list comprehension
+                generators = [
+                    ast.comprehension(
+                        target=next_stmt.target,
+                        iter=next_stmt.iter,
+                        ifs=pattern.get('conditions', []),
+                        is_async=0
+                    )
+                ]
+                
+                list_comp = ast.ListComp(
+                    elt=pattern['append_expr'],
+                    generators=generators
+                )
+                
+                # Create assignment to comprehension
+                new_assign = ast.Assign(
+                    targets=[ast.Name(id=pattern['target_name'], ctx=ast.Store())],
+                    value=list_comp
+                )
+                
+                # Copy location information
+                ast.copy_location(new_assign, current_stmt)
+                
+                # Replace the two statements with the comprehension
+                statements[i] = new_assign
+                statements.pop(i + 1)
+                
+                # Don't increment i since we removed a statement
+            else:
+                # Process nested blocks
+                if hasattr(statements[i], 'body'):
+                    self._transform_block(statements[i].body, pattern_map)
+                if hasattr(statements[i], 'orelse'):
+                    self._transform_block(statements[i].orelse, pattern_map)
+                    
+                i += 1
+        
+        # Process the last statement if it exists
+        if statements and hasattr(statements[-1], 'body'):
+            self._transform_block(statements[-1].body, pattern_map)
+        if statements and hasattr(statements[-1], 'orelse'):
+            self._transform_block(statements[-1].orelse, pattern_map)
+
+
+class EmptyLoopTransformer(CodeTransformer):
+    """Removes loops that do nothing"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Remove empty loops
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = EmptyLoopDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        # Track nodes to remove by lineno
+        lines_to_remove = set(pattern['node'].lineno for pattern in patterns if hasattr(pattern['node'], 'lineno'))
+        
+        # Process each scope
+        for node in ast.walk(tree_copy):
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and hasattr(node, 'body'):
+                # Filter out empty loops
+                node.body = [
+                    stmt for stmt in node.body 
+                    if not (isinstance(stmt, (ast.For, ast.While)) and 
+                           hasattr(stmt, 'lineno') and 
+                           stmt.lineno in lines_to_remove)
+                ]
+        
+        logger.info(f"Removed {len(patterns)} empty loops")
+        return tree_copy
+
+
+class DeadCodeTransformer(CodeTransformer):
+    """Removes code after return statements"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Remove code after return statements
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = DeadCodeDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        # Process each function
+        for pattern in patterns:
+            # Find the matching function in our copied tree
+            for func_node in [n for n in ast.walk(tree_copy) if isinstance(n, ast.FunctionDef)]:
+                if (hasattr(func_node, 'name') and 
+                    hasattr(pattern['function_node'], 'name') and
+                    func_node.name == pattern['function_node'].name and
+                    hasattr(func_node, 'lineno') and
+                    hasattr(pattern['function_node'], 'lineno') and
+                    func_node.lineno == pattern['function_node'].lineno):
+                    
+                    # Truncate the function body after the return
+                    for i, stmt in enumerate(func_node.body):
+                        if (isinstance(stmt, ast.Return) and 
+                            i == pattern['return_index']):
+                            # Keep everything up to and including this return
+                            func_node.body = func_node.body[:i+1]
+                            break
+        
+        logger.info(f"Removed dead code after {len(patterns)} return statements")
+        return tree_copy
+
+
+class BooleanComparisonTransformer(CodeTransformer):
+    """Simplifies redundant boolean comparisons"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Simplify comparisons with True/False
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = RedundantComparisonDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        class BooleanSimplifier(ast.NodeTransformer):
+            def __init__(self):
+                self.transformed_count = 0
+            
+            def visit_Compare(self, node):
+                """Transform x == True to x and x == False to not x"""
                 # Process children first
                 self.generic_visit(node)
                 
-                # Simplify boolean expressions
-                if isinstance(node.test, ast.Compare):
-                    # Simplify comparisons like "if x == True" to "if x"
-                    if (len(node.test.ops) == 1 and isinstance(node.test.ops[0], ast.Eq) and
-                            isinstance(node.test.comparators[0], ast.Constant) and 
-                            node.test.comparators[0].value is True):
-                        
-                        self.changes.append("Simplified 'if x == True' to 'if x'")
-                        
-                        # Create change record
-                        change = OptimizationChange(
-                            description="Simplified comparison with True constant",
-                            line_start=getattr(node, 'lineno', 0),
-                            line_end=getattr(node, 'end_lineno', 0),
-                            original_code=astor.to_source(node.test),
-                            optimized_code=astor.to_source(node.test.left)
-                        )
-                        self.detailed_changes.append(change)
-                        
-                        node.test = node.test.left
-                        
-                    # Simplify comparisons like "if x == False" to "if not x"
-                    elif (len(node.test.ops) == 1 and isinstance(node.test.ops[0], ast.Eq) and
-                          isinstance(node.test.comparators[0], ast.Constant) and 
-                          node.test.comparators[0].value is False):
-                        
-                        self.changes.append("Simplified 'if x == False' to 'if not x'")
-                        
-                        # Create change record
-                        change = OptimizationChange(
-                            description="Simplified comparison with False constant",
-                            line_start=getattr(node, 'lineno', 0),
-                            line_end=getattr(node, 'end_lineno', 0),
-                            original_code=astor.to_source(node.test),
-                            optimized_code=f"not {astor.to_source(node.test.left).strip()}"
-                        )
-                        self.detailed_changes.append(change)
-                        
-                        node.test = ast.UnaryOp(op=ast.Not(), operand=node.test.left)
+                # Only handle single comparisons with == or is
+                if len(node.ops) != 1 or not isinstance(node.ops[0], (ast.Eq, ast.Is)):
+                    return node
                 
-                # Simplify nested if-statements with no else clauses
-                if (len(node.body) == 1 and isinstance(node.body[0], ast.If) and 
-                    not node.orelse and not node.body[0].orelse):
+                # Check against patterns by lineno
+                if (hasattr(node, 'lineno') and 
+                    any(p['node'].lineno == node.lineno for p in patterns if hasattr(p['node'], 'lineno'))):
                     
-                    inner_if = node.body[0]
-                    # Combine conditions: if a: if b: c ==> if a and b: c
-                    combined_test = ast.BoolOp(
-                        op=ast.And(),
-                        values=[node.test, inner_if.test]
-                    )
-                    
-                    self.changes.append("Combined nested if statements with AND")
-                    
-                    # Create change record
-                    change = OptimizationChange(
-                        description="Combined nested if statements",
-                        line_start=getattr(node, 'lineno', 0),
-                        line_end=getattr(inner_if, 'end_lineno', 0),
-                        original_code=astor.to_source(node),
-                        optimized_code=f"if {astor.to_source(node.test).strip()} and {astor.to_source(inner_if.test).strip()}:\n    # Combined nested conditionals"
-                    )
-                    self.detailed_changes.append(change)
-                    
-                    return ast.If(
-                        test=combined_test,
-                        body=inner_if.body,
-                        orelse=[]
-                    )
-                    
-                return node
+                    # Find matching pattern
+                    for pattern in patterns:
+                        if (hasattr(pattern['node'], 'lineno') and 
+                            node.lineno == pattern['node'].lineno):
+                            
+                            if pattern['is_true_comparison']:
+                                # x == True -> x
+                                self.transformed_count += 1
+                                return pattern['expression']
+                            else:
+                                # x == False -> not x
+                                not_expr = ast.UnaryOp(
+                                    op=ast.Not(),
+                                    operand=pattern['expression']
+                                )
+                                
+                                # Copy location info
+                                ast.copy_location(not_expr, node)
+                                
+                                self.transformed_count += 1
+                                return not_expr
                 
-            def visit_UnaryOp(self, node):
-                # Process operand first
-                self.generic_visit(node)
-                
-                # Simplify double negation: not (not x) => x
-                if isinstance(node.op, ast.Not) and isinstance(node.operand, ast.UnaryOp) and isinstance(node.operand.op, ast.Not):
-                    self.changes.append("Removed double negation")
-                    
-                    # Create change record
-                    change = OptimizationChange(
-                        description="Removed double negation",
-                        line_start=getattr(node, 'lineno', 0),
-                        line_end=getattr(node, 'end_lineno', 0),
-                        original_code=astor.to_source(node),
-                        optimized_code=astor.to_source(node.operand.operand)
-                    )
-                    self.detailed_changes.append(change)
-                    
-                    return node.operand.operand
-                    
                 return node
         
-        # Apply conditional simplification
-        simplifier = ConditionalSimplifier()
-        optimized_tree = simplifier.visit(copy.deepcopy(tree))
+        # Apply transformation
+        simplifier = BooleanSimplifier()
+        result = simplifier.visit(tree_copy)
         
-        return optimized_tree, simplifier.changes, simplifier.detailed_changes
+        logger.info(f"Simplified {simplifier.transformed_count} boolean comparisons")
+        return result
+
+
+class StringConcatTransformer(CodeTransformer):
+    """Transforms string concatenation in loops to join()"""
     
-    def _remove_redundant_conditionals(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
-        """Remove redundant conditional statements and simplify if-else chains."""
-        class RedundantConditionalRemover(ast.NodeTransformer):
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Convert string concatenation in loops to join()
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = StringConcatDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        # Map patterns by line number
+        pattern_map = {}
+        for pattern in patterns:
+            if hasattr(pattern['node'], 'lineno'):
+                pattern_map[pattern['node'].lineno] = pattern
+        
+        # Process blocks that might contain our patterns
+        for node in ast.walk(tree_copy):
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and hasattr(node, 'body'):
+                self._transform_block(node.body, pattern_map)
+        
+        logger.info(f"Transformed {len(patterns)} string concatenations to join()")
+        return tree_copy
+    
+    def _transform_block(self, statements: List[ast.stmt], pattern_map: Dict[int, Dict[str, Any]]) -> None:
+        """
+        Transform string concatenation patterns in a block
+        
+        Args:
+            statements: List of statements to transform
+            pattern_map: Map of patterns by line number
+        """
+        i = 0
+        while i < len(statements) - 1:
+            # Check for string concat pattern
+            current_stmt = statements[i]
+            next_stmt = statements[i + 1]
+            
+            # Check if it matches one of our patterns
+            if (hasattr(current_stmt, 'lineno') and 
+                current_stmt.lineno in pattern_map and
+                isinstance(next_stmt, ast.For)):
+                
+                pattern = pattern_map[current_stmt.lineno]
+                
+                # Create a join expression
+                # Create empty string literal
+                empty_str = RuleUtils.create_constant_node("")
+                
+                # Create list comprehension for items to join
+                list_comp = ast.ListComp(
+                    elt=pattern['concat_expr'],
+                    generators=[
+                        ast.comprehension(
+                            target=next_stmt.target,
+                            iter=next_stmt.iter,
+                            ifs=[],
+                            is_async=0
+                        )
+                    ]
+                )
+                
+                # Create ''.join(list_comp)
+                join_call = ast.Call(
+                    func=ast.Attribute(
+                        value=empty_str,
+                        attr='join',
+                        ctx=ast.Load()
+                    ),
+                    args=[list_comp],
+                    keywords=[]
+                )
+                
+                # Create assignment
+                new_assign = ast.Assign(
+                    targets=[ast.Name(id=pattern['target_name'], ctx=ast.Store())],
+                    value=join_call
+                )
+                
+                # Copy location info
+                ast.copy_location(new_assign, current_stmt)
+                
+                # Replace statements
+                statements[i] = new_assign
+                statements.pop(i + 1)
+                
+                # Don't increment i since we removed a statement
+            else:
+                # Process nested blocks
+                if hasattr(statements[i], 'body'):
+                    self._transform_block(statements[i].body, pattern_map)
+                if hasattr(statements[i], 'orelse'):
+                    self._transform_block(statements[i].orelse, pattern_map)
+                    
+                i += 1
+        
+        # Process the last statement if it exists
+        if statements and hasattr(statements[-1], 'body'):
+            self._transform_block(statements[-1].body, pattern_map)
+        if statements and hasattr(statements[-1], 'orelse'):
+            self._transform_block(statements[-1].orelse, pattern_map)
+
+
+class BooleanReturnTransformer(CodeTransformer):
+    """Simplifies boolean return statements"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Simplify if/else with boolean returns
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = BooleanReturnDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        class BooleanReturnSimplifier(ast.NodeTransformer):
             def __init__(self):
-                self.changes = []
-                self.detailed_changes = []
+                self.transformed_count = 0
                 
             def visit_If(self, node):
-                # Process nested conditions first
+                # Process children first (bottom-up transformation)
                 self.generic_visit(node)
                 
-                # Check for identical if/else branches
-                if (node.orelse and len(node.body) == len(node.orelse) and
-                    all(ast.dump(node.body[i]) == ast.dump(node.orelse[i]) for i in range(len(node.body)))):
-                    
-                    self.changes.append("Removed redundant conditional with identical branches")
-                    
-                    # Create change record
-                    change = OptimizationChange(
-                        description="Removed if/else with identical branches",
-                        line_start=getattr(node, 'lineno', 0),
-                        line_end=getattr(node, 'end_lineno', 0) if hasattr(node, 'end_lineno') else 0,
-                        original_code=astor.to_source(node),
-                        optimized_code="# Removed redundant if/else with identical branches"
-                    )
-                    self.detailed_changes.append(change)
-                    
-                    # Just return the body statements since both branches are identical
-                    return node.body
-                
-                # Check for empty branches
-                if not node.body:
-                    if not node.orelse:
-                        # If both branches are empty, remove the entire if statement
-                        self.changes.append("Removed empty if statement")
-                        return None
-                    else:
-                        # If the if branch is empty, negate the condition and use the else branch
-                        self.changes.append("Simplified if-else with empty if branch")
-                        negated_test = ast.UnaryOp(op=ast.Not(), operand=node.test)
-                        return ast.If(test=negated_test, body=node.orelse, orelse=[])
-                elif not node.orelse:
-                    # If the else branch is empty, keep the if as is
-                    return node
-                
-                return node
-        
-        # Apply redundant conditional removal
-        remover = RedundantConditionalRemover()
-        optimized_tree = remover.visit(copy.deepcopy(tree))
-        
-        return optimized_tree, remover.changes, remover.detailed_changes
-    
-    def _remove_redundancies(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
-        """Remove redundant code patterns and expressions."""
-        class RedundancyRemover(ast.NodeTransformer):
-            def __init__(self):
-                self.changes = []
-                self.detailed_changes = []
-                
-            def visit_Expr(self, node):
-                # Remove no-op expressions like string literals that aren't docstrings
-                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                    # Keep only if it could be a docstring
-                    parent = getattr(node, 'parent', None)
-                    is_docstring = (parent and isinstance(parent, (ast.Module, ast.ClassDef, ast.FunctionDef)) and 
-                                   parent.body and parent.body[0] is node)
-                    if not is_docstring:
-                        self.changes.append("Removed standalone string literal")
+                # Check if this node matches any of our patterns
+                for pattern in patterns:
+                    if (hasattr(pattern['node'], 'lineno') and 
+                        hasattr(node, 'lineno') and
+                        pattern['node'].lineno == node.lineno):
                         
-                        # Create change record
-                        change = OptimizationChange(
-                            description="Removed unused string literal",
-                            line_start=getattr(node, 'lineno', 0),
-                            line_end=getattr(node, 'end_lineno', 0) if hasattr(node, 'end_lineno') else 0,
-                            original_code=astor.to_source(node),
-                            optimized_code="# Removed unused string literal"
-                        )
-                        self.detailed_changes.append(change)
-                        
-                        return None
-                
-                return self.generic_visit(node)
-                
-            def visit_Assign(self, node):
-                # Check for self-assignments: x = x
-                if (len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and 
-                    isinstance(node.value, ast.Name) and node.targets[0].id == node.value.id):
-                    
-                    self.changes.append(f"Removed self-assignment: {node.targets[0].id} = {node.value.id}")
-                    
-                    # Create change record
-                    change = OptimizationChange(
-                        description=f"Removed self-assignment",
-                        line_start=getattr(node, 'lineno', 0),
-                        line_end=getattr(node, 'end_lineno', 0) if hasattr(node, 'end_lineno') else 0,
-                        original_code=astor.to_source(node),
-                        optimized_code=f"# Removed self-assignment: {node.targets[0].id} = {node.value.id}"
-                    )
-                    self.detailed_changes.append(change)
-                    
-                    return None
-                    
-                return self.generic_visit(node)
-                
-            def visit_BinOp(self, node):
-                # Process operands first
-                self.generic_visit(node)
-                
-                # Optimize x + 0, x * 1, etc.
-                if isinstance(node.right, ast.Constant):
-                    # Addition with 0
-                    if isinstance(node.op, ast.Add) and node.right.value == 0:
-                        self.changes.append("Removed addition with 0")
-                        return node.left
-                        
-                    # Subtraction with 0
-                    if isinstance(node.op, ast.Sub) and node.right.value == 0:
-                        self.changes.append("Removed subtraction with 0")
-                        return node.left
-                        
-                    # Multiplication with 1
-                    if isinstance(node.op, ast.Mult) and node.right.value == 1:
-                        self.changes.append("Removed multiplication with 1")
-                        return node.left
-                        
-                    # Division by 1
-                    if isinstance(node.op, ast.Div) and node.right.value == 1:
-                        self.changes.append("Removed division by 1")
-                        return node.left
-                        
-                # Check the left operand too for commutative operations
-                if isinstance(node.left, ast.Constant):
-                    # Addition with 0
-                    if isinstance(node.op, ast.Add) and node.left.value == 0:
-                        self.changes.append("Removed addition with 0")
-                        return node.right
-                        
-                    # Multiplication with 1
-                    if isinstance(node.op, ast.Mult) and node.left.value == 1:
-                        self.changes.append("Removed multiplication with 1")
-                        return node.right
-                        
-                    # Multiplication with 0 (returns 0)
-                    if isinstance(node.op, ast.Mult) and node.left.value == 0:
-                        self.changes.append("Simplified multiplication with 0")
-                        return ast.Constant(value=0)
-                        
-                return node
-                
-            def visit_Call(self, node):
-                # Process function call arguments
-                self.generic_visit(node)
-                
-                # Remove redundant str() calls on string literals
-                if (isinstance(node.func, ast.Name) and node.func.id == 'str' and 
-                    len(node.args) == 1 and isinstance(node.args[0], ast.Constant) and 
-                    isinstance(node.args[0].value, str)):
-                    
-                    self.changes.append("Removed redundant str() call on string literal")
-                    return node.args[0]
-                    
-                # Remove redundant list() calls on list literals
-                if (isinstance(node.func, ast.Name) and node.func.id == 'list' and 
-                    len(node.args) == 1 and isinstance(node.args[0], ast.List)):
-                    
-                    self.changes.append("Removed redundant list() call on list literal")
-                    return node.args[0]
-                    
-                # Remove redundant int() calls on integer literals
-                if (isinstance(node.func, ast.Name) and node.func.id == 'int' and 
-                    len(node.args) == 1 and isinstance(node.args[0], ast.Constant) and 
-                    isinstance(node.args[0].value, int)):
-                    
-                    self.changes.append("Removed redundant int() call on integer literal")
-                    return node.args[0]
-                    
-                return node
-                
-            def visit_For(self, node):
-                # Check for empty loop bodies
-                if not node.body:
-                    self.changes.append("Removed empty for loop")
-                    return None
-                
-                return self.generic_visit(node)
-                
-            def visit_While(self, node):
-                # Check for empty loop bodies
-                if not node.body:
-                    self.changes.append("Removed empty while loop")
-                    return None
-                    
-                return self.generic_visit(node)
-        
-        # Apply redundancy removal
-        remover = RedundancyRemover()
-        optimized_tree = remover.visit(copy.deepcopy(tree))
-        
-        return optimized_tree, remover.changes, remover.detailed_changes
-    
-    def _remove_redundant_returns(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
-        """Remove redundant return statements and simplify returns."""
-        class ReturnSimplifier(ast.NodeTransformer):
-            def __init__(self):
-                self.changes = []
-                self.detailed_changes = []
-                
-            def visit_FunctionDef(self, node):
-                # Process function body first
-                self.generic_visit(node)
-                
-                if not node.body:
-                    # Empty function body - add a default return None
-                    node.body = [ast.Return(value=None)]
-                    return node
-                
-                # Check if the last statement is a return
-                last_stmt = node.body[-1]
-                if not isinstance(last_stmt, ast.Return):
-                    # Add implicit return None at the end of function
-                    node.body.append(ast.Return(value=None))
-                    
-                return node
-                
-            def visit_Return(self, node):
-                # Simplify return statements with redundant expressions
-                if node.value is None:
-                    # Leave "return None" as is
-                    return node
-                    
-                return node
-        
-        # Apply return simplification
-        simplifier = ReturnSimplifier()
-        optimized_tree = simplifier.visit(copy.deepcopy(tree))
-        
-        return optimized_tree, simplifier.changes, simplifier.detailed_changes
-    
-    def _inline_functions(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
-        """Inline small functions for performance improvement."""
-        class FunctionInliner(ast.NodeTransformer):
-            def __init__(self, config):
-                self.changes = []
-                self.detailed_changes = []
-                self.functions = {}  # Maps function names to AST nodes
-                self.config = config
-                
-            def visit_Module(self, node):
-                # First pass: collect all function definitions
-                for item in node.body:
-                    if isinstance(item, ast.FunctionDef):
-                        self.functions[item.name] = item
-                
-                # Second pass: inline function calls
-                self.generic_visit(node)
-                return node
-                
-            def visit_FunctionDef(self, node):
-                # Skip the function body if this is a function we might inline
-                if node.name in self.functions:
-                    return node
-                
-                # Otherwise, process the function body normally
-                self.generic_visit(node)
-                return node
-                
-            def visit_Call(self, node):
-                # Process the arguments first
-                self.generic_visit(node)
-                
-                # Check if this is a call to a function we know
-                if isinstance(node.func, ast.Name) and node.func.id in self.functions:
-                    func_def = self.functions[node.func.id]
-                    
-                    # Only inline if the function is small enough
-                    if self._is_inlinable(func_def):
-                        # Create inlined version of the function
-                        try:
-                            inlined = self._inline_function(func_def, node.args, node.keywords)
-                            if inlined:
-                                self.changes.append(f"Inlined function call: {func_def.name}")
-                                
-                                # Create change record
-                                change = OptimizationChange(
-                                    description=f"Inlined function call: {func_def.name}",
-                                    line_start=getattr(node, 'lineno', 0),
-                                    line_end=getattr(node, 'end_lineno', 0) if hasattr(node, 'end_lineno') else 0,
-                                    original_code=astor.to_source(node),
-                                    optimized_code="# Inlined function call"
+                        # Check the pattern type
+                        if pattern['returns_true_in_if']:
+                            # if x: return True else: return False -> return x
+                            return_node = ast.Return(value=node.test)
+                        else:
+                            # if x: return False else: return True -> return not x
+                            return_node = ast.Return(
+                                value=ast.UnaryOp(
+                                    op=ast.Not(),
+                                    operand=node.test
                                 )
-                                self.detailed_changes.append(change)
-                                
-                                return inlined
-                        except Exception as e:
-                            # If inlining fails, keep the original call
-                            pass
+                            )
+                        
+                        # Copy location info
+                        ast.copy_location(return_node, node)
+                        
+                        self.transformed_count += 1
+                        return return_node
                 
                 return node
-                
-            def _is_inlinable(self, func_def):
-                """Check if a function is small enough to inline."""
-                # Count statements in function body
-                statement_count = len(func_def.body)
-                
-                # Functions with one or very few statements are good candidates
-                return statement_count <= self.config.inline_threshold
-                
-            def _inline_function(self, func_def, args, keywords):
-                """Create an inlined version of a function call."""
-                # Map arguments to parameters
-                if len(func_def.args.args) != len(args) and not func_def.args.defaults:
-                    # Can't inline if argument counts don't match
-                    return None
-                
-                # Create a mapping of parameter names to argument values
-                param_map = {}
-                for i, arg_node in enumerate(func_def.args.args):
-                    if i < len(args):
-                        param_map[arg_node.arg] = args[i]
-                    elif i - len(args) < len(func_def.args.defaults):
-                        # Use default value
-                        default_index = i - len(args)
-                        param_map[arg_node.arg] = func_def.args.defaults[default_index]
-                    else:
-                        # Missing argument with no default
-                        return None
-                
-                # Handle keyword arguments
-                for kw in keywords:
-                    param_map[kw.arg] = kw.value
-                
-                # Substitute parameters in the function body
-                class ParameterSubstitutor(ast.NodeTransformer):
-                    def __init__(self, param_map):
-                        self.param_map = param_map
-                        
-                    def visit_Name(self, node):
-                        if isinstance(node.ctx, ast.Load) and node.id in self.param_map:
-                            return self.param_map[node.id]
-                        return node
-                        
-                    def visit_Return(self, node):
-                        # Replace return statements with their value
-                        if node.value:
-                            return self.visit(node.value)
-                        return ast.Constant(value=None)
-                
-                # Apply substitution for each statement
-                substitutor = ParameterSubstitutor(param_map)
-                inlined_body = []
-                
-                for stmt in func_def.body[:-1]:  # All but the last statement
-                    inlined_stmt = substitutor.visit(copy.deepcopy(stmt))
-                    inlined_body.append(inlined_stmt)
-                
-                # Handle the last statement (might be a return)
-                last_stmt = func_def.body[-1]
-                if isinstance(last_stmt, ast.Return):
-                    inlined_result = substitutor.visit(copy.deepcopy(last_stmt.value)) if last_stmt.value else ast.Constant(value=None)
-                    return inlined_result
-                else:
-                    inlined_body.append(substitutor.visit(copy.deepcopy(last_stmt)))
-                    # If no return, the function returns None
-                    return ast.Constant(value=None)
-                
-                # This should not be reached, but just in case
-                return None
         
-        # Apply function inlining
-        inliner = FunctionInliner(self.config)
-        optimized_tree = inliner.visit(copy.deepcopy(tree))
+        # Apply transformation
+        simplifier = BooleanReturnSimplifier()
+        result = simplifier.visit(tree_copy)
         
-        return optimized_tree, inliner.changes, inliner.detailed_changes
-    
-    def _optimize_memory(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
-        """Optimize memory usage in code."""
-        class MemoryOptimizer(ast.NodeTransformer):
-            def __init__(self):
-                self.changes = []
-                self.detailed_changes = []
-                
-            def visit_ListComp(self, node):
-                """Convert list comprehensions to generator expressions where appropriate."""
-                # Only convert if this is not already a starred assignment target
-                parent = getattr(node, 'parent', None)
-                
-                # Don't convert if it's being unpacked
-                if isinstance(parent, ast.Assign) and any(
-                    isinstance(target, ast.Starred) for target in parent.targets
-                ):
-                    return self.generic_visit(node)
-                
-                # Check if the list comp is used immediately in a for loop
-                if isinstance(parent, ast.For) and parent.iter is node:
-                    # Convert to generator expression
-                    gen_exp = ast.GeneratorExp(
-                        elt=node.elt,
-                        generators=node.generators
-                    )
-                    
-                    self.changes.append("Converted list comprehension to generator expression")
-                    
-                    # Create change record
-                    change = OptimizationChange(
-                        description="Converted list comprehension to generator expression",
-                        line_start=getattr(node, 'lineno', 0),
-                        line_end=getattr(node, 'end_lineno', 0) if hasattr(node, 'end_lineno') else 0,
-                        original_code=astor.to_source(node),
-                        optimized_code=astor.to_source(gen_exp)
-                    )
-                    self.detailed_changes.append(change)
-                    
-                    return gen_exp
-                
-                return self.generic_visit(node)
-                
-            def visit_Compare(self, node):
-                """Replace list with set for membership testing."""
-                # Check for "in" operations on lists that could be sets
-                if len(node.ops) == 1 and isinstance(node.ops[0], (ast.In, ast.NotIn)):
-                    comparator = node.comparators[0]
-                    
-                    # If comparing against a list literal, consider converting to set
-                    if isinstance(comparator, ast.List) and len(comparator.elts) > 5:
-                        # Convert list to set for faster lookups
-                        set_comp = ast.Set(elts=comparator.elts)
-                        
-                        self.changes.append("Replaced list with set for membership testing")
-                        
-                        # Create change record
-                        change = OptimizationChange(
-                            description="Replaced list with set for faster lookups",
-                            line_start=getattr(comparator, 'lineno', 0),
-                            line_end=getattr(comparator, 'end_lineno', 0) if hasattr(comparator, 'end_lineno') else 0,
-                            original_code=astor.to_source(comparator),
-                            optimized_code=astor.to_source(set_comp)
-                        )
-                        self.detailed_changes.append(change)
-                        
-                        node.comparators[0] = set_comp
-                
-                return self.generic_visit(node)
-        
-        # Apply memory optimization
-        optimizer = MemoryOptimizer()
-        optimized_tree = optimizer.visit(copy.deepcopy(tree))
-        
-        return optimized_tree, optimizer.changes, optimizer.detailed_changes
-    
-    def _optimize_string_concat(self, tree: ast.AST) -> Tuple[ast.AST, List[str], List[OptimizationChange]]:
-        """Optimize string concatenation operations."""
-        class StringConcatOptimizer(ast.NodeTransformer):
-            def __init__(self):
-                self.changes = []
-                self.detailed_changes = []
-                
-            def visit_For(self, node):
-                """Look for string concatenation in loops."""
-                # Process the body first
-                self.generic_visit(node)
-                
-                # Look for string concatenation pattern in loops
-                string_concat_assigns = []
-                
-                for stmt in node.body:
-                    if isinstance(stmt, ast.AugAssign) and isinstance(stmt.op, ast.Add):
-                        # Check if we're concatenating to a string
-                        if isinstance(stmt.target, ast.Name):
-                            string_concat_assigns.append(stmt)
-                
-                # If we found string concatenation in the loop, suggest using join
-                if string_concat_assigns:
-                    self.changes.append("Detected string concatenation in loop (consider using join instead)")
-                    
-                    # Create change record
-                    change = OptimizationChange(
-                        description="Suggested replacing string concatenation with join method",
-                        line_start=getattr(node, 'lineno', 0),
-                        line_end=getattr(node, 'end_lineno', 0) if hasattr(node, 'end_lineno') else 0,
-                        original_code=astor.to_source(node),
-                        optimized_code="# Consider using ''.join() instead of += for string concatenation in loops"
-                    )
-                    self.detailed_changes.append(change)
-                
-                return node
-                
-            def visit_BinOp(self, node):
-                """Optimize string concatenation with + operator."""
-                # Process operands first
-                self.generic_visit(node)
-                
-                # Check for chain of string concatenations
-                if isinstance(node.op, ast.Add):
-                    # Count the number of string concatenations in a chain
-                    strings = self._count_string_chain(node)
-                    
-                    if strings > 3:
-                        self.changes.append(f"Detected chain of {strings} string concatenations (consider using join)")
-                        
-                        # Create change record
-                        change = OptimizationChange(
-                            description=f"Suggested replacing string concatenation chain with join",
-                            line_start=getattr(node, 'lineno', 0),
-                            line_end=getattr(node, 'end_lineno', 0) if hasattr(node, 'end_lineno') else 0,
-                            original_code=astor.to_source(node),
-                            optimized_code="# Consider using ''.join() instead of + for multiple string concatenations"
-                        )
-                        self.detailed_changes.append(change)
-                
-                return node
-                
-            def _count_string_chain(self, node, count=1):
-                """Count the number of strings in a concatenation chain."""
-                if not isinstance(node, ast.BinOp) or not isinstance(node.op, ast.Add):
-                    return count
-                
-                # Check if either operand is a string constant
-                left_is_str = isinstance(node.left, ast.Constant) and isinstance(node.left.value, str)
-                right_is_str = isinstance(node.right, ast.Constant) and isinstance(node.right.value, str)
-                
-                # Increment count if either operand is a string
-                if left_is_str or right_is_str:
-                    count += 1
-                
-                # Recursively check if left or right operand is also a concatenation
-                if isinstance(node.left, ast.BinOp):
-                    count = self._count_string_chain(node.left, count)
-                if isinstance(node.right, ast.BinOp):
-                    count = self._count_string_chain(node.right, count)
-                
-                return count
-        
-        # Apply string concatenation optimization
-        optimizer = StringConcatOptimizer()
-        optimized_tree = optimizer.visit(copy.deepcopy(tree))
-        
-        return optimized_tree, optimizer.changes, optimizer.detailed_changes
+        logger.info(f"Simplified {simplifier.transformed_count} boolean returns")
+        return result
 
-# Public interface functions
+
+class RedundantPassTransformer(CodeTransformer):
+    """Removes redundant pass statements"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Transform if condition: pass else: ... to if not condition: ...
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = RedundantPassDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        class PassRemover(ast.NodeTransformer):
+            def __init__(self):
+                self.transformed_count = 0
+                
+            def visit_If(self, node):
+                # Check if node matches pattern by lineno
+                for pattern in patterns:
+                    if (hasattr(pattern['node'], 'lineno') and 
+                        hasattr(node, 'lineno') and
+                        pattern['node'].lineno == node.lineno):
+                        
+                        # Create inverted condition
+                        inverted_test = ast.UnaryOp(
+                            op=ast.Not(),
+                            operand=node.test
+                        )
+                        
+                        # Create new if with inverted condition
+                        new_node = ast.If(
+                            test=inverted_test,
+                            body=node.orelse,
+                            orelse=[]
+                        )
+                        
+                        # Copy line and col info
+                        ast.copy_location(new_node, node)
+                        
+                        self.transformed_count += 1
+                        return new_node
+                
+                # Process children for nested ifs
+                self.generic_visit(node)
+                return node
+                
+        # Apply transformation
+        transformer = PassRemover()
+        result = transformer.visit(tree_copy)
+        
+        logger.info(f"Transformed {transformer.transformed_count} redundant pass statements")
+        return result
+
+
+class ChainedComparisonTransformer(CodeTransformer):
+    """Transforms chained equality comparisons to use 'in' operator"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Transform x == 1 or x == 2 or x == 3 to x in {1, 2, 3}
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = ChainedComparisonDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        class ComparisonTransformer(ast.NodeTransformer):
+            def __init__(self):
+                self.transformed_count = 0
+                
+            def visit_BoolOp(self, node):
+                # Process children first
+                self.generic_visit(node)
+                
+                # Check if this is one of our patterns
+                for pattern in patterns:
+                    if (hasattr(pattern['node'], 'lineno') and 
+                        hasattr(node, 'lineno') and
+                        pattern['node'].lineno == node.lineno):
+                        
+                        # Create a set literal with the values
+                        elts = []
+                        for value in pattern['values']:
+                            elts.append(RuleUtils.create_constant_node(value))
+                            
+                        set_node = ast.Set(elts=elts)
+                        
+                        # Create x in {1, 2, 3} test
+                        in_test = ast.Compare(
+                            left=ast.Name(id=pattern['variable'], ctx=ast.Load()),
+                            ops=[ast.In()],
+                            comparators=[set_node]
+                        )
+                        
+                        # Copy location info
+                        ast.copy_location(in_test, node)
+                        
+                        self.transformed_count += 1
+                        return in_test
+                
+                return node
+                
+        # Apply transformation
+        transformer = ComparisonTransformer()
+        result = transformer.visit(tree_copy)
+        
+        logger.info(f"Transformed {transformer.transformed_count} chained comparisons")
+        return result
+
+
+class SingleUseVariableTransformer(CodeTransformer):
+    """Inlines variables used only once in returns"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Inline variables used only once in return statements
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = SingleUseVariableDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        # Add parent references
+        ASTNodeVisitor.add_parent_info(tree_copy)
+        
+        # Group patterns by function and variable
+        by_function = {}
+        for pattern in patterns:
+            # Find the parent function
+            parent_func = None
+            node = pattern['node']
+            while hasattr(node, 'parent'):
+                if isinstance(node.parent, ast.FunctionDef):
+                    parent_func = node.parent
+                    break
+                node = node.parent
+            
+            if parent_func and hasattr(parent_func, 'name'):
+                func_name = parent_func.name
+                var_name = pattern['variable']
+                
+                if func_name not in by_function:
+                    by_function[func_name] = {}
+                    
+                if var_name not in by_function[func_name]:
+                    by_function[func_name][var_name] = pattern
+        
+        # Process each function in the tree
+        for func_node in [n for n in ast.walk(tree_copy) if isinstance(n, ast.FunctionDef)]:
+            if func_node.name in by_function:
+                var_patterns = by_function[func_node.name]
+                
+                # Track statements to remove
+                to_remove = set()
+                
+                # First pass: collect variables and their values
+                var_to_value = {}
+                for i, stmt in enumerate(func_node.body):
+                    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                        if isinstance(stmt.targets[0], ast.Name):
+                            var_name = stmt.targets[0].id
+                            if var_name in var_patterns:
+                                var_to_value[var_name] = stmt.value
+                                to_remove.add(i)
+                
+                # Second pass: replace return values
+                for i, stmt in enumerate(func_node.body):
+                    if isinstance(stmt, ast.Return) and isinstance(stmt.value, ast.Name):
+                        var_name = stmt.value.id
+                        if var_name in var_to_value:
+                            # Replace return var with its value
+                            stmt.value = var_to_value[var_name]
+                
+                # Third pass: remove the variable assignments
+                func_node.body = [stmt for i, stmt in enumerate(func_node.body) if i not in to_remove]
+        
+        logger.info(f"Inlined {len(patterns)} single-use variables")
+        return tree_copy
+
+
+class NestedIfCombiner(CodeTransformer):
+    """Combines nested if statements"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Transform if a: if b: ... to if a and b: ...
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = NestedIfDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        class IfCombiner(ast.NodeTransformer):
+            def __init__(self):
+                self.transformed_count = 0
+                
+            def visit_If(self, node):
+                # Check if this node matches any of our patterns
+                matches_pattern = False
+                for pattern in patterns:
+                    if (hasattr(pattern['node'], 'lineno') and 
+                        hasattr(node, 'lineno') and
+                        pattern['node'].lineno == node.lineno):
+                        
+                        # Create combined condition (a and b)
+                        combined_test = ast.BoolOp(
+                            op=ast.And(),
+                            values=[pattern['outer_test'], pattern['inner_test']]
+                        )
+                        
+                        # Replace test and body
+                        node.test = combined_test
+                        node.body = pattern['inner_body']
+                        
+                        self.transformed_count += 1
+                        matches_pattern = True
+                        break
+                
+                # If this was a pattern, don't visit children (we removed the nested if)
+                if not matches_pattern:
+                    self.generic_visit(node)
+                    
+                return node
+        
+        # Apply transformation
+        combiner = IfCombiner()
+        result = combiner.visit(tree_copy)
+        
+        logger.info(f"Combined {combiner.transformed_count} nested if statements")
+        return result
+
+
+class UnusedImportTransformer(CodeTransformer):
+    """Removes unused imports"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Remove imports that are not used in the code
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = UnusedImportDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        # Collect all unused import names and nodes
+        unused_imports = {}
+        for pattern in patterns:
+            unused_imports[pattern['import_name']] = pattern['import_node']
+        
+        # Process module statements
+        if isinstance(tree_copy, ast.Module):
+            new_body = []
+            for stmt in tree_copy.body:
+                if isinstance(stmt, ast.Import):
+                    # Keep only used imports
+                    new_names = []
+                    for name in stmt.names:
+                        asname = name.asname or name.name
+                        if asname not in unused_imports or unused_imports[asname] is not name:
+                            new_names.append(name)
+                    
+                    if new_names:
+                        stmt.names = new_names
+                        new_body.append(stmt)
+                    # Skip if all names were unused
+                elif isinstance(stmt, ast.ImportFrom):
+                    # Check if any names are used
+                    new_names = []
+                    for name in stmt.names:
+                        asname = name.asname or name.name
+                        if asname not in unused_imports or unused_imports[asname] is not name:
+                            new_names.append(name)
+                    
+                    if new_names:
+                        stmt.names = new_names
+                        new_body.append(stmt)
+                    # Skip if all names were unused
+                else:
+                    new_body.append(stmt)
+            
+            tree_copy.body = new_body
+        
+        logger.info(f"Removed {len(patterns)} unused imports")
+        return tree_copy
+
+
+class NotNotToBoolTransformer(CodeTransformer):
+    """Transforms not not value to bool(value)"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Replace not not value with bool(value)
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = NotNotToBoolDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        class NotNotTransformer(ast.NodeTransformer):
+            def __init__(self):
+                self.transformed_count = 0
+                
+            def visit_UnaryOp(self, node):
+                # Process children first
+                self.generic_visit(node)
+                
+                # Check if this is a not not pattern
+                if (isinstance(node.op, ast.Not) and 
+                    isinstance(node.operand, ast.UnaryOp) and 
+                    isinstance(node.operand.op, ast.Not)):
+                    
+                    # Verify against patterns by line number
+                    if hasattr(node, 'lineno'):
+                        for pattern in patterns:
+                            if (hasattr(pattern['node'], 'lineno') and 
+                                pattern['node'].lineno == node.lineno):
+                                
+                                # Replace with bool() call
+                                bool_call = ast.Call(
+                                    func=ast.Name(id='bool', ctx=ast.Load()),
+                                    args=[pattern['value']],
+                                    keywords=[]
+                                )
+                                
+                                # Copy location info
+                                ast.copy_location(bool_call, node)
+                                
+                                self.transformed_count += 1
+                                return bool_call
+                
+                return node
+        
+        # Apply transformation
+        transformer = NotNotTransformer()
+        result = transformer.visit(tree_copy)
+        
+        logger.info(f"Transformed {transformer.transformed_count} not not patterns to bool()")
+        return result
+
+
+class RedundantParenthesesTransformer(CodeTransformer):
+    """Removes redundant parentheses from expressions (limited capability)"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Remove redundant parentheses
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = RedundantParenthesesDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        class ParenthesesRemover(ast.NodeTransformer):
+            def __init__(self):
+                self.transformed_count = 0
+                
+            def visit_Tuple(self, node):
+                # Process children first
+                self.generic_visit(node)
+                
+                # Check for single-element tuples that might be redundant parentheses
+                if len(node.elts) == 1:
+                    # Check against patterns
+                    if hasattr(node, 'lineno'):
+                        for pattern in patterns:
+                            if (hasattr(pattern['node'], 'lineno') and 
+                                pattern['node'].lineno == node.lineno):
+                                
+                                # Replace with the inner expression
+                                self.transformed_count += 1
+                                return node.elts[0]
+                
+                return node
+        
+        # Apply transformation
+        remover = ParenthesesRemover()
+        result = remover.visit(tree_copy)
+        
+        logger.info(f"Removed {remover.transformed_count} redundant parentheses")
+        return result
+
+
+class UniqueValuesTransformer(CodeTransformer):
+    """Transforms inefficient unique values implementation to use set()"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Replace unique values implementation with set()
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        detector = UniqueValuesDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        class SetBasedTransformer(ast.NodeTransformer):
+            def __init__(self):
+                self.transformed_count = 0
+                
+            def visit_FunctionDef(self, node):
+                # Check if this function matches one of our patterns
+                for pattern in patterns:
+                    if (hasattr(pattern['node'], 'lineno') and 
+                        hasattr(node, 'lineno') and
+                        pattern['node'].lineno == node.lineno):
+                        
+                        # Get input parameter name
+                        param_name = None
+                        if node.args.args:
+                            param_name = node.args.args[0].arg
+                        else:
+                            # Default to 'items' if no parameters
+                            param_name = 'items'
+                        
+                        # Create list(set(items))
+                        set_call = ast.Call(
+                            func=ast.Name(id='set', ctx=ast.Load()),
+                            args=[ast.Name(id=param_name, ctx=ast.Load())],
+                            keywords=[]
+                        )
+                        
+                        list_call = ast.Call(
+                            func=ast.Name(id='list', ctx=ast.Load()),
+                            args=[set_call],
+                            keywords=[]
+                        )
+                        
+                        # Replace with return list(set(items))
+                        new_return = ast.Return(value=list_call)
+                        
+                        # Copy location info
+                        ast.copy_location(new_return, node.body[-1] if node.body else node)
+                        
+                        # Replace function body
+                        node.body = [new_return]
+                        self.transformed_count += 1
+                        return node
+                
+                # If no match, process children
+                self.generic_visit(node)
+                return node
+        
+        # Apply transformation
+        transformer = SetBasedTransformer()
+        result = transformer.visit(tree_copy)
+        
+        logger.info(f"Transformed {transformer.transformed_count} unique values implementations")
+        return result
+
+
+class FormatToFStringTransformer(CodeTransformer):
+    """Transforms string format() calls to f-strings"""
+    
+    def _transform_ast(self, tree: ast.AST) -> ast.AST:
+        """
+        Convert string.format() calls to f-strings
+        
+        Args:
+            tree: Abstract Syntax Tree
+            
+        Returns:
+            Transformed AST
+        """
+        # Only apply for Python 3.6+
+        if sys.version_info < (3, 6):
+            logger.warning("f-strings require Python 3.6+, skipping this transformation")
+            return tree
+        
+        detector = FormatToFStringDetector()
+        patterns = detector._detect_in_ast(tree)
+        
+        if not patterns:
+            return tree
+        
+        tree_copy = copy.deepcopy(tree)
+        
+        class FormatConverter(ast.NodeTransformer):
+            def __init__(self):
+                self.transformed_count = 0
+            
+            def visit_Call(self, node):
+                # Process children first
+                self.generic_visit(node)
+                
+                # Check if this is a format() call from our patterns
+                for pattern in patterns:
+                    if (hasattr(pattern['node'], 'lineno') and 
+                        hasattr(node, 'lineno') and
+                        pattern['node'].lineno == node.lineno):
+                        
+                        # Get format string
+                        format_str = pattern['format_str']
+                        
+                        # We'll implement a simple conversion strategy:
+                        # For positional args, replace {0}, {1}, etc. with {args[0]}, {args[1]}, etc.
+                        # For keyword args, replace {name} with {name}
+                        
+                        # Create an f-string using the original template
+                        # For a proper implementation, we'd need to parse format placeholders
+                        # and replace them, but we'll use a simple prefix here
+                        f_string = "f" + repr(format_str)
+                        
+                        # Create a literal node with the f-string value
+                        new_node = RuleUtils.create_constant_node(f_string[1:-1])
+                        
+                        # Copy location info
+                        ast.copy_location(new_node, node)
+                        
+                        self.transformed_count += 1
+                        return new_node
+                
+                return node
+        
+        # Apply transformation
+        converter = FormatConverter()
+        result = converter.visit(tree_copy)
+        
+        logger.info(f"Converted {converter.transformed_count} format() calls to f-strings")
+        return result
+    
+###########################################
+# PART 4: Rule-Based Optimizer
+###########################################
+
+class RuleBasedOptimizer:
+    """Main rule-based optimizer that coordinates detectors and transformers"""
+
+    def __init__(self):
+        """Initialize the optimizer with all detectors and transformers"""
+        # Initialize pattern detectors
+        self.detectors = {
+            'unused_variable': UnusedVariableDetector(),
+            'redundant_assignment': RedundantAssignmentDetector(),
+            'range_len_loop': RangeLenLoopDetector(),
+            'list_append_loop': ListAppendLoopDetector(),
+            'empty_loop': EmptyLoopDetector(),
+            'dead_code': DeadCodeDetector(),
+            'redundant_comparison': RedundantComparisonDetector(),
+            'string_concat_in_loop': StringConcatDetector(),
+            'boolean_return': BooleanReturnDetector(),
+            'redundant_pass': RedundantPassDetector(),
+            'chained_comparison': ChainedComparisonDetector(),
+            'single_use_variable': SingleUseVariableDetector(),
+            'nested_if': NestedIfDetector(),
+            'unused_import': UnusedImportDetector(),
+            'not_not_pattern': NotNotToBoolDetector(),
+            'redundant_parentheses': RedundantParenthesesDetector(),
+            'inefficient_unique_values': UniqueValuesDetector(),
+            'format_to_fstring': FormatToFStringDetector()
+        }
+        
+        # Initialize code transformers
+        self.transformers = {
+            'unused_variable': UnusedVariableTransformer(),
+            'redundant_assignment': RedundantAssignmentTransformer(),
+            'range_len_loop': RangeLenLoopTransformer(),
+            'list_append_loop': ListComprehensionTransformer(),
+            'empty_loop': EmptyLoopTransformer(),
+            'dead_code': DeadCodeTransformer(),
+            'redundant_comparison': BooleanComparisonTransformer(),
+            'string_concat_in_loop': StringConcatTransformer(),
+            'boolean_return': BooleanReturnTransformer(),
+            'redundant_pass': RedundantPassTransformer(),
+            'chained_comparison': ChainedComparisonTransformer(),
+            'single_use_variable': SingleUseVariableTransformer(),
+            'nested_if': NestedIfCombiner(),
+            'unused_import': UnusedImportTransformer(),
+            'not_not_pattern': NotNotToBoolTransformer(),
+            'redundant_parentheses': RedundantParenthesesTransformer(),
+            'inefficient_unique_values': UniqueValuesTransformer(),
+            'format_to_fstring': FormatToFStringTransformer()
+        }
+        
+        # Map optimization types to transformers
+        self.pattern_transformer_map = {
+            'unused_variable': 'unused_variable',
+            'redundant_assignment': 'redundant_assignment',
+            'range_len_loop': 'range_len_loop',
+            'list_append_loop': 'list_append_loop',
+            'empty_loop': 'empty_loop',
+            'dead_code': 'dead_code',
+            'redundant_comparison': 'redundant_comparison',
+            'string_concat_in_loop': 'string_concat_in_loop',
+            'boolean_return': 'boolean_return',
+            'redundant_pass': 'redundant_pass',
+            'chained_comparison': 'chained_comparison',
+            'single_use_variable': 'single_use_variable',
+            'nested_if': 'nested_if',
+            'unused_import': 'unused_import',
+            'not_not_pattern': 'not_not_pattern',
+            'redundant_parentheses': 'redundant_parentheses',
+            'inefficient_unique_values': 'inefficient_unique_values',
+            'format_to_fstring': 'format_to_fstring'
+        }
+        
+        # Define optimization priority order
+        # Order matters: some optimizations might enable or affect others
+        self.optimization_order = [
+            # Start with structural optimizations
+            'unused_import',            # Remove imports first to clean up the code
+            'dead_code',                # Remove unreachable code early
+            'empty_loop',               # Remove empty loops that waste cycles
+            
+            # Expression simplifications
+            'redundant_comparison',     # Simplify boolean expressions
+            'boolean_return',           # Simplify boolean returns
+            'chained_comparison',       # Convert chained equality to 'in'
+            'not_not_pattern',          # Convert not not to bool()
+            'redundant_parentheses',    # Remove unnecessary parentheses
+            
+            # Statement optimizations
+            'redundant_pass',           # Remove pass statements
+            'nested_if',                # Combine nested if statements
+            'single_use_variable',      # Inline single-use variables
+            
+            # Loop and collection optimizations
+            'range_len_loop',           # Simplify range(len(x)) loops
+            'list_append_loop',         # Convert to list comprehensions
+            'string_concat_in_loop',    # Convert to join()
+            'inefficient_unique_values', # Use set() for uniqueness
+            
+            # Style and syntax optimizations
+            'format_to_fstring',        # Convert to f-strings (Python 3.6+)
+            
+            # Final cleanup
+            'redundant_assignment',     # Remove redundant assignments
+            'unused_variable',          # Remove unused variables last
+        ]
+        
+        # Initialize counters and tracking
+        self.detection_count = 0
+        self.optimization_count = 0
+        self.applied_optimizations = {}  # type name -> count
+        
+        logger.info("RuleBasedOptimizer initialized with %d detectors and %d transformers", 
+                    len(self.detectors), len(self.transformers))
+    
+# Add to RuleBasedOptimizer class
+    def _get_patterns_for_transformer(self, transformer_name, code):
+        """Get patterns for a transformer using the corresponding detector"""
+        # Map transformer to detector
+        detector_name = transformer_name
+        if detector_name not in self.detectors:
+            return []
+            
+        # Get the detector
+        detector = self.detectors[detector_name]
+        
+        # Detect patterns
+        try:
+            return detector.detect(code)
+        except Exception as e:
+            logger.error(f"Error detecting patterns for {transformer_name}: {str(e)}")
+            return []
+    
+    
+    def detect_inefficient_patterns(self, code: str) -> List[Dict[str, Any]]:
+        """
+        Detect inefficient patterns in code
+        
+        Args:
+            code: Python code as string
+            
+        Returns:
+            List of detected patterns with metadata
+        """
+        if not code or not code.strip():
+            logger.warning("Empty or whitespace-only code provided")
+            return []
+            
+        patterns = []
+        
+        # Initial parsing check
+        if not parse_python_code(code):
+            logger.error("Failed to parse code for pattern detection")
+            return patterns
+        
+        # Apply each detector and collect patterns
+        for name, detector in self.detectors.items():
+            try:
+                detected_patterns = detector.detect(code)
+                for pattern in detected_patterns:
+                    if 'name' not in pattern:
+                        pattern['name'] = name
+                patterns.extend(detected_patterns)
+            except Exception as e:
+                logger.error(f"Error in detector {name}: {str(e)}")
+        
+        self.detection_count = len(patterns)
+        logger.info(f"Detected {self.detection_count} inefficient patterns")
+        return patterns
+    
+    def optimize(self, code: str) -> Tuple[str, List[Dict[str, Any]], int]:
+        """Optimize code using rule-based system"""
+        # Reset counters
+        self.detection_count = 0
+        self.optimization_count = 0
+        
+        # Validate input
+        if not code or not code.strip():
+            return code, [], 0
+        
+        try:
+            # Start with original code
+            current_code = code
+            all_patterns = []
+            total_transformations = 0
+            
+            # Apply transformations in priority order
+            for opt_type in self.optimization_order:
+                transformer_name = self.pattern_transformer_map.get(opt_type)
+                if not transformer_name or transformer_name not in self.transformers:
+                    continue
+                    
+                # Get the transformer
+                transformer = self.transformers[transformer_name]
+                
+                try:
+                    # Transform the code
+                    new_code = transformer.transform(current_code)
+                    
+                    # Check if the code was changed
+                    if new_code != current_code:
+                        current_code = new_code
+                        total_transformations += 1
+                except Exception as e:
+                    logger.error(f"Error applying {transformer_name}: {str(e)}")
+            
+            self.optimization_count = total_transformations
+            return current_code, all_patterns, total_transformations
+        except Exception as e:
+            logger.error(f"Error in optimize: {str(e)}")
+            return code, [], 0
+    
+    def apply_optimization_rules(self, code: str, patterns: List[Dict[str, Any]] = None) -> str:
+        """
+        Apply optimization rules to code (legacy method for backward compatibility)
+        
+        Args:
+            code: Python code as string
+            patterns: Optional list of pre-detected patterns
+            
+        Returns:
+            Optimized code as string
+        """
+        # Just call optimize and return the first element
+        optimized_code, _, _ = self.optimize(code)
+        return optimized_code
+        
+    def generate_optimization_report(self, patterns: List[Dict[str, Any]], 
+                                     applied_optimizations: Dict[str, int] = None) -> str:
+        """
+        Generate a human-readable report of detected inefficiencies and optimizations
+        
+        Args:
+            patterns: List of detected patterns
+            applied_optimizations: Dict mapping optimization types to counts
+            
+        Returns:
+            Report as string
+        """
+        if not patterns:
+            return "No inefficient patterns detected."
+        
+        # Use provided optimizations or class tracking
+        if applied_optimizations is None:
+            applied_optimizations = self.applied_optimizations
+        
+        total_optimizations = sum(applied_optimizations.values())
+        
+        # Group patterns by type
+        by_type = {}
+        for pattern in patterns:
+            name = pattern.get('name', 'unknown')
+            if name not in by_type:
+                by_type[name] = []
+            by_type[name].append(pattern)
+        
+        # Build report
+        report = [f"Detected {len(patterns)} inefficient patterns:"]
+        
+        # Sort pattern types by count (most frequent first)
+        sorted_types = sorted(by_type.items(), key=lambda x: len(x[1]), reverse=True)
+        
+        for name, patterns_list in sorted_types:
+            # Get a readable name
+            readable_name = name.replace('_', ' ').title()
+            
+            # Add if this optimization was applied
+            applied_str = ""
+            if name in applied_optimizations:
+                applied_str = f" (✓ Fixed: {applied_optimizations[name]})"
+            
+            report.append(f"\n{readable_name} ({len(patterns_list)} instances){applied_str}:")
+            
+            # Show examples (at most 3 per type)
+            for pattern in patterns_list[:3]:
+                desc = pattern.get('description', 'No description')
+                severity = pattern.get('severity', 'unknown')
+                line = pattern.get('lineno', '?')
+                report.append(f"  - Line {line}: {desc} (Severity: {severity})")
+            
+            if len(patterns_list) > 3:
+                report.append(f"  - ... and {len(patterns_list) - 3} more instances")
+        
+        # Summary
+        report.append(f"\nApplied {total_optimizations} optimization rules.")
+        
+        if applied_optimizations:
+            report.append("\nOptimizations by type:")
+            # Sort by count (most frequent first)
+            sorted_opts = sorted(applied_optimizations.items(), key=lambda x: x[1], reverse=True)
+            for opt_type, count in sorted_opts:
+                readable_name = opt_type.replace('_', ' ').title()
+                report.append(f"  - {readable_name}: {count}")
+        
+        return "\n".join(report)
+
+
+###########################################
+# PART 5: Public API and Utility Functions
+###########################################
 
 def detect_inefficient_patterns(code: str) -> List[Dict[str, Any]]:
     """
-    Detect inefficient code patterns without modifying the code.
+    Detect inefficient patterns in code (standalone function)
+    
+    Args:
+        code: Python code as string
+            
+    Returns:
+        List of detected patterns with metadata
+    """
+    optimizer = RuleBasedOptimizer()
+    return optimizer.detect_inefficient_patterns(code)
+
+
+def apply_optimization_rules(code: str, patterns: List[Dict[str, Any]] = None) -> str:
+    """
+    Apply rule-based optimizations to Python code
+    
+    Args:
+        code: Python code as string
+        patterns: Optional pre-detected patterns
+        
+    Returns:
+        Optimized code
+    """
+    optimizer = RuleBasedOptimizer()
+    return optimizer.apply_optimization_rules(code, patterns)
+
+
+def optimize_code(code: str) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
+    """
+    Optimize code using rule-based system (main entry point)
     
     Args:
         code: Python code as string
         
     Returns:
-        List of detected inefficiencies with line numbers and descriptions
+        Tuple of (optimized_code, detected_patterns, optimization_counts)
     """
-    patterns = []
+    optimizer = RuleBasedOptimizer()
+    return optimizer.optimize(code)
+
+
+def format_optimization_report(patterns: List[Dict[str, Any]], 
+                              optimization_stats: Dict[str, int]) -> str:
+    """
+    Format a human-readable report of optimizations
+    
+    Args:
+        patterns: List of detected patterns
+        optimization_stats: Dict mapping optimization types to counts
+        
+    Returns:
+        Formatted report string
+    """
+    optimizer = RuleBasedOptimizer()
+    return optimizer.generate_optimization_report(patterns, optimization_stats)
+
+
+def compare_code(original: str, optimized: str) -> str:
+    """
+    Generate a diff comparing original and optimized code
+    
+    Args:
+        original: Original code
+        optimized: Optimized code
+        
+    Returns:
+        Diff as string
+    """
+    import difflib
+    
+    # Generate diff
+    original_lines = original.splitlines()
+    optimized_lines = optimized.splitlines()
+    
+    diff = difflib.unified_diff(
+        original_lines,
+        optimized_lines,
+        fromfile='original',
+        tofile='optimized',
+        lineterm=''
+    )
+    
+    return '\n'.join(diff)
+
+
+def main():
+    """
+    Main function for command-line usage
+    """
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='EFFICODE-ACRR Rule-Based Code Optimizer')
+    parser.add_argument('input_file', help='Python file to optimize')
+    parser.add_argument('-o', '--output', help='Output file (defaults to stdout)')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Show detailed optimization info')
+    parser.add_argument('-r', '--report', action='store_true', help='Generate optimization report')
+    parser.add_argument('-d', '--diff', action='store_true', help='Show diff of changes')
+    
+    args = parser.parse_args()
+    
+    # Configure logging
+    log_level = logging.INFO if args.verbose else logging.WARNING
+    logging.basicConfig(
+        level=log_level,
+        format='%(levelname)s: %(message)s'
+    )
     
     try:
-        # Parse the code
-        tree = ast.parse(code)
+        # Read input file
+        with open(args.input_file, 'r') as f:
+            code = f.read()
         
-        # Use a visitor to detect inefficiencies
-        class InefficiencyDetector(ast.NodeVisitor):
-            def __init__(self):
-                self.inefficiencies = []
-                
-            def visit_For(self, node):
-                # Check for inefficient loops
-                if isinstance(node.iter, ast.Call):
-                    call = node.iter
-                    if isinstance(call.func, ast.Name) and call.func.id == 'range':
-                        # Check for range(len(x)) instead of enumerate(x)
-                        if (len(call.args) == 1 and isinstance(call.args[0], ast.Call) and 
-                            isinstance(call.args[0].func, ast.Name) and call.args[0].func.id == 'len'):
-                            self.inefficiencies.append({
-                                'line': node.lineno,
-                                'type': 'inefficient_loop',
-                                'description': 'Use enumerate() instead of range(len())'
-                            })
-                self.generic_visit(node)
-                
-            def visit_BinOp(self, node):
-                # Check for string concatenation in a loop
-                if isinstance(node.op, ast.Add):
-                    # Check if either operand is a string
-                    left_is_str = (isinstance(node.left, ast.Constant) and isinstance(node.left.value, str))
-                    right_is_str = (isinstance(node.right, ast.Constant) and isinstance(node.right.value, str))
-                    
-                    if left_is_str or right_is_str:
-                        # Find if this is in a loop
-                        parent = getattr(node, 'parent', None)
-                        in_loop = False
-                        while parent:
-                            if isinstance(parent, (ast.For, ast.While)):
-                                in_loop = True
-                                break
-                            parent = getattr(parent, 'parent', None)
-                            
-                        if in_loop:
-                            self.inefficiencies.append({
-                                'line': node.lineno,
-                                'type': 'string_concat_in_loop',
-                                'description': 'String concatenation in loop; use join() or list comprehension instead'
-                            })
-                self.generic_visit(node)
-                
-            def visit_Compare(self, node):
-                # Check for inefficient comparisons
-                for i, op in enumerate(node.ops):
-                    if isinstance(op, ast.In) and isinstance(node.comparators[i], ast.List):
-                        # Check for "x in [...]" instead of "x in {...}" (set)
-                        if len(node.comparators[i].elts) > 3:
-                            self.inefficiencies.append({
-                                'line': node.lineno,
-                                'type': 'list_membership',
-                                'description': 'Use a set for membership testing instead of a list'
-                            })
-                self.generic_visit(node)
+        # Optimize code
+        optimized_code, patterns, optimization_stats = optimize_code(code)
         
-        # Run the detector
-        detector = InefficiencyDetector()
-        detector.visit(tree)
-        patterns = detector.inefficiencies
+        # Generate report if requested
+        if args.report or args.verbose:
+            report = format_optimization_report(patterns, optimization_stats)
+            print(report)
+            print()
+        
+        # Show diff if requested
+        if args.diff and optimized_code != code:
+            diff = compare_code(code, optimized_code)
+            print(diff)
+            print()
+        
+        # Write output
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(optimized_code)
+            print(f"Optimized code written to {args.output}")
+        else:
+            print(optimized_code)
+        
+        return 0
+    
     except Exception as e:
-        # If parsing fails, return empty list
-        logger.error(f"Error detecting inefficient patterns: {str(e)}")
-    
-    return patterns
+        logging.error(f"Error: {str(e)}")
+        return 1
 
-def apply_optimization_rules(code: str, optimization_level="medium") -> Tuple[str, List[str]]:
-    """
-    Apply rule-based optimizations to Python code.
-    
-    Args:
-        code: Python code as string
-        optimization_level: Level of optimization to apply ("low", "medium", "aggressive")
-        
-    Returns:
-        Tuple of (optimized_code, changes_made)
-    """
-    # Create optimizer with specified level
-    optimizer = RuleBasedOptimizer(OptimizerConfig(optimization_level=optimization_level))
-    
-    # Apply optimizations
-    result = optimizer.optimize(code)
-    
-    if result.success:
-        return result.optimized_code, result.changes_made
-    else:
-        # Return original code if optimization failed
-        return code, [f"Optimization failed: {result.error}"]
 
-# Main execution for testing
 if __name__ == "__main__":
-    # Example usage
-    test_code = """
-def bubble_sort(arr):
-    n = len(arr)
-    for i in range(n):
-        for j in range(0, n - i - 1):
-            if arr[j] > arr[j + 1]:
-                arr[j], arr[j + 1] = arr[j + 1], arr[j]
-    return arr
-k=90
-bubble_sort([3, 2, 1])
-    """
-    
-    # Detect inefficient patterns
-    inefficiencies = detect_inefficient_patterns(test_code)
-    print("Inefficient patterns detected:")
-    for issue in inefficiencies:
-        print(f"Line {issue['line']}: {issue['description']}")
-    
-    # Apply optimizations
-    optimized_code, changes = apply_optimization_rules(test_code)
-    
-    print("\nOptimized code:")
-    print(optimized_code)
-    
-    print("\nChanges made:")
-    for change in changes:
-        print(f"- {change}")
+    sys.exit(main())

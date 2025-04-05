@@ -104,3 +104,27 @@ dmypy.json
 *.pkl
 *.db
 *.sqlite 
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Model files and cache
+*.safetensors
+*.bin
+*.pkl
+backend/models/flan_t5_cache/
+backend/models/flan_t5_fine_tuned/
+backend/src/flan_t5_cache/
+flan_t5_fine_tuned/
+*.model
+
+# Development
+.vscode/
+.idea/
+*.log
+logs/
+node_modules/
