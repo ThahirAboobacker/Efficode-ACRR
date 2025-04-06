@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import './App.css';
 import CodeEditor from './components/CodeEditor';
 import OptimizationResults from './components/OptimizationResults';
 import PerformanceMetrics from './components/PerformanceMetrics';
 import { optimizeCode } from './api/optimizationApi';
 import { OptimizationResult } from './types';
+import ApiTestPage from './pages/ApiTest';
 
 function App() {
-  const [code, setCode] = useState<string>('# Enter your Python code here\n\ndef bubble_sort(arr):\n    n = len(arr)\n    for i in range(n):\n        for j in range(0, n-i-1):\n            if arr[j] > arr[j+1]:\n                arr[j], arr[j+1] = arr[j+1], arr[j]\n    return arr');
+  const [code, setCode] = useState<string>('# Enter your Python code here\n');
   const [result, setResult] = useState<OptimizationResult | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,45 +33,17 @@ function App() {
     setError(null);
     
     try {
-      // If backend API is failing, use this local implementation
-      // for demonstration purposes
       if (code.trim().length < 5) {
         throw new Error('Please enter a valid code snippet');
       }
       
-      // Try to call the real API
+      // Call the API without fallback implementation
       try {
         const apiResult = await optimizeCode(code, 'medium');
         setResult(apiResult);
       } catch (apiError) {
-        console.error('API error, using fallback:', apiError);
-        // Fallback to local implementation for demo
-        setResult({
-          originalCode: code,
-          optimizedCode: code.includes('bubble_sort') 
-            ? code.replace('bubble_sort', 'quick_sort').replace(/for i in range\(n\)[\s\S]*?return arr/, 
-              `if len(arr) <= 1:
-        return arr
-    pivot = arr[len(arr)//2]
-    left = [x for x in arr if x < pivot]
-    middle = [x for x in arr if x == pivot]
-    right = [x for x in arr if x > pivot]
-    return quick_sort(left) + middle + quick_sort(right)`)
-            : code,
-          originalComplexity: "O(n²)",
-          optimizedComplexity: "O(n log n)",
-          explanation: "The code was optimized by replacing bubble sort with quick sort algorithm. This change improves time complexity from O(n²) to O(n log n), offering better performance for large arrays.\n\n## Optimization Techniques Applied\n- Replaced nested loops with divide-and-conquer approach\n- Eliminated unnecessary comparisons\n- Improved space-time trade-off\n\n## Implementation Details\nThe quick sort algorithm uses a pivot element to partition the array and recursively sorts each partition. This approach significantly reduces the number of comparisons needed for large datasets.",
-          processingTime: 0.5,
-          timestamp: Date.now(),
-          complexityComparison: {
-            original: "O(n²)",
-            optimized: "O(n log n)"
-          },
-          metrics: {
-            speedup: 5.2,
-            efficiencyGain: 80
-          }
-        });
+        console.error('API error:', apiError);
+        setError('Failed to optimize code. Please check if the server is running.');
       }
     } catch (err: any) {
       setError(err.message || 'An unknown error occurred');
@@ -85,11 +59,14 @@ function App() {
     }
   };
 
-  return (
-    <div className="App">
+  const MainApp = () => (
+    <>
       <header className="App-header">
         <h1>EFFICODE-ACRR</h1>
         <p>Algorithm Complexity Reduction and Refactoring</p>
+        <nav>
+          <Link to="/test-api" className="nav-link">Test API Connection</Link>
+        </nav>
       </header>
       
       <main className={`App-main ${isMobile ? 'mobile-view' : 'desktop-view'}`}>
@@ -168,7 +145,18 @@ function App() {
           </div>
         )}
       </main>
-    </div>
+    </>
+  );
+
+  return (
+    <Router>
+      <div className="App">
+        <Routes>
+          <Route path="/" element={<MainApp />} />
+          <Route path="/test-api" element={<ApiTestPage />} />
+        </Routes>
+      </div>
+    </Router>
   );
 }
 

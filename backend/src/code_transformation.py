@@ -58,6 +58,9 @@ class CodeTransformer:
         self.original_code = None
         self.optimized_code = None
         
+        # Initialize algorithm registry
+        self.algorithm_registry = AlgorithmRegistry()
+        
         # Register transformation rules
         self.transformation_rules = {
             'sorting': self._optimize_sorting,
@@ -82,7 +85,7 @@ class CodeTransformer:
         
         logger.info("CodeTransformer initialized")
     
-    def parse_code(self, code: str) -> Optional[ast.AST]:
+    def parse_code(self, code: str) -> Tuple[Optional[ast.AST], List[str]]:
         """
         Parse Python code into an AST
         
@@ -90,25 +93,33 @@ class CodeTransformer:
             code: Python code as string
             
         Returns:
-            AST object or None if parsing fails
+            Tuple of (AST object or None if parsing fails, list of error messages)
         """
+        errors = []
+        
         if not isinstance(code, str) or not code.strip():
-            logger.error("Empty or invalid code provided")
-            return None
+            error_msg = "Empty or invalid code provided"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return None, errors
             
         try:
             self.original_code = code
             self.ast_tree = ast.parse(code)
-            return self.ast_tree
+            return self.ast_tree, errors
         except SyntaxError as e:
-            logger.error(f"Syntax error while parsing code: {str(e)}")
-            return None
+            error_msg = f"Syntax error while parsing code: {str(e)}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return None, errors
         except Exception as e:
-            logger.error(f"Error parsing code: {str(e)}")
-            return None
+            error_msg = f"Error parsing code: {str(e)}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return None, errors
     
     def transform_code(self, ast_tree: Optional[ast.AST] = None, 
-                       optimizations: List[str] = ['all']) -> Optional[ast.AST]:
+                       optimizations: List[str] = ['all']) -> Tuple[Optional[ast.AST], List[str]]:
         """
         Apply transformations to the AST
         
@@ -118,14 +129,18 @@ class CodeTransformer:
                            Options: ['sorting', 'search', 'loop', 'data_structure', 'algorithm', 'all']
             
         Returns:
-            Transformed AST or None if transformation fails
+            Tuple of (transformed AST, error messages) or (None, error messages) if transformation fails
         """
+        errors = []
+        
         if ast_tree is not None:
             self.ast_tree = ast_tree
             
         if self.ast_tree is None:
-            logger.error("No AST available for transformation")
-            return None
+            error_msg = "No AST available for transformation"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return None, errors
         
         try:
             # Create a copy of the AST to transform
@@ -140,19 +155,23 @@ class CodeTransformer:
                     logger.info(f"Applying {opt} optimization")
                     transformer.add_transformation(self.transformation_rules[opt])
                 else:
-                    logger.warning(f"Unknown optimization type: {opt}")
+                    warning_msg = f"Unknown optimization type: {opt}"
+                    logger.warning(warning_msg)
+                    errors.append(warning_msg)
             
             # Apply the transformations
             transformed_ast = transformer.visit(self.ast_tree)
             ast.fix_missing_locations(transformed_ast)
             
-            return transformed_ast
+            return transformed_ast, errors
             
         except Exception as e:
-            logger.error(f"Error transforming code: {str(e)}")
-            return None
+            error_msg = f"Error transforming code: {str(e)}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return None, errors
     
-    def replace_algorithm(self, code: str, source_algo: str, target_algo: str) -> str:
+    def replace_algorithm(self, code: str, source_algo: str, target_algo: str) -> Tuple[str, List[str]]:
         """
         Replace an algorithm with a more efficient one
         
@@ -162,10 +181,13 @@ class CodeTransformer:
             target_algo: Name or identifier of the target algorithm
             
         Returns:
-            Code with replaced algorithm
+            Tuple of (code with replaced algorithm, list of error messages)
         """
+        errors = []
+        
         if not code or not source_algo or not target_algo:
-            return code
+            errors.append("Missing required parameters for algorithm replacement")
+            return code, errors
         
         try:
             # Parse the code
@@ -174,41 +196,51 @@ class CodeTransformer:
             
             # If we still don't have a valid AST, return the original code
             if self.ast_tree is None:
-                return code
+                errors.append("Failed to parse code into AST")
+                return code, errors
             
             # Identify algorithm function
             func_finder = FunctionFinder(source_algo)
             func_finder.visit(self.ast_tree)
             
             if not func_finder.found_function:
-                logger.warning(f"Could not find function for {source_algo}")
-                return code
+                warning_msg = f"Could not find function for {source_algo}"
+                logger.warning(warning_msg)
+                errors.append(warning_msg)
+                return code, errors
             
             # Get the replacement algorithm code
-            replacement_code = self._get_algorithm_template(target_algo)
+            replacement_code = self.algorithm_registry.get_algorithm(target_algo)
             if not replacement_code:
-                logger.warning(f"No template found for {target_algo}")
-                return code
+                warning_msg = f"No template found for {target_algo}"
+                logger.warning(warning_msg)
+                errors.append(warning_msg)
+                return code, errors
             
             # Parse the replacement code
             try:
                 replacement_ast = ast.parse(replacement_code)
             except SyntaxError:
-                logger.error(f"Syntax error in replacement algorithm template for {target_algo}")
-                return code
+                error_msg = f"Syntax error in replacement algorithm template for {target_algo}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                return code, errors
             
             # Create a new AST with the replaced function
             replacer = FunctionReplacer(func_finder.function_name, replacement_ast, target_algo)
             new_ast = replacer.visit(self.ast_tree)
             
             # Generate the new code
-            return self.generate_optimized_code(new_ast)
+            new_code, errors = self.generate_optimized_code(new_ast)
+            return new_code, errors
             
         except Exception as e:
-            logger.error(f"Error replacing algorithm: {str(e)}")
-            return code
+            error_msg = f"Error replacing algorithm: {str(e)}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return code, errors
     
-    def generate_optimized_code(self, ast_tree: Optional[ast.AST] = None) -> str:
+    def generate_optimized_code(self, ast_tree: Optional[ast.AST] = None) -> Tuple[str, List[str]]:
         """
         Generate code from a transformed AST
         
@@ -216,12 +248,16 @@ class CodeTransformer:
             ast_tree: AST to generate code from (uses transformed AST if None)
             
         Returns:
-            Generated code as string
+            Tuple of (generated code as string, list of error messages)
         """
+        errors = []
+        
         if ast_tree is None:
             if self.ast_tree is None:
-                logger.error("No AST available for code generation")
-                return ""
+                error_msg = "No AST available for code generation"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                return "", errors
             ast_tree = self.ast_tree
         
         try:
@@ -230,7 +266,10 @@ class CodeTransformer:
                 try:
                     optimized_code = astor.to_source(ast_tree)
                 except Exception as e:
-                    logger.warning(f"astor failed to generate code: {e}")
+                    error_msg = f"astor failed to generate code: {e}"
+                    logger.warning(error_msg)
+                    errors.append(error_msg)
+                    
                     if astunparse:
                         optimized_code = astunparse.unparse(ast_tree)
                     else:
@@ -254,13 +293,15 @@ class CodeTransformer:
             optimized_code = self._clean_generated_code(optimized_code)
             
             self.optimized_code = optimized_code
-            return optimized_code
+            return optimized_code, errors
             
         except Exception as e:
-            logger.error(f"Error generating code: {str(e)}")
+            error_msg = f"Error generating code: {str(e)}"
+            logger.error(error_msg)
+            errors.append(error_msg)
             
             # If code generation fails, return the original code
-            return self.original_code if self.original_code else ""
+            return self.original_code if self.original_code else "", errors
     
     def _clean_generated_code(self, code: str) -> str:
         """
@@ -338,45 +379,6 @@ class CodeTransformer:
         # Handle unsupported nodes
         else:
             return f"# Unsupported AST node: {type(node).__name__}"
-    
-    def _get_algorithm_template(self, algorithm_name: str) -> str:
-        """
-        Get template code for a specific algorithm
-        
-        Args:
-            algorithm_name: Name of the algorithm
-            
-        Returns:
-            Template code or empty string if not found
-        """
-        # Try to find in sorting algorithms
-        if algorithm_name in SORTING_ALGORITHMS:
-            return SORTING_ALGORITHMS[algorithm_name]
-        
-        # Try to find in search algorithms
-        if algorithm_name in SEARCH_ALGORITHMS:
-            return SEARCH_ALGORITHMS[algorithm_name]
-        
-        # Try to find in graph algorithms
-        if algorithm_name in GRAPH_ALGORITHMS:
-            return GRAPH_ALGORITHMS[algorithm_name]
-        
-        # Try to find in dynamic programming algorithms
-        if algorithm_name in DYNAMIC_PROGRAMMING_ALGORITHMS:
-            return DYNAMIC_PROGRAMMING_ALGORITHMS[algorithm_name]
-        
-        # If algorithm name contains underscore, try splitting and searching again
-        if '_' in algorithm_name:
-            parts = algorithm_name.split('_')
-            # Try variations like 'quick' instead of 'quick_sort'
-            for part in parts:
-                if part in SORTING_ALGORITHMS:
-                    return SORTING_ALGORITHMS[part]
-                if part in SEARCH_ALGORITHMS:
-                    return SEARCH_ALGORITHMS[part]
-        
-        logger.warning(f"No template found for algorithm: {algorithm_name}")
-        return ""
     
     def _optimize_sorting(self, node: ast.AST) -> ast.AST:
         """
@@ -639,11 +641,23 @@ class FunctionReplacer(ast.NodeTransformer):
         return node
 
 
-# Default algorithm templates if external module not available
-if 'algorithm_templates' not in globals():
-    # Simple templates for common algorithms
-    SORTING_ALGORITHMS = {
-        'quick_sort': """
+class AlgorithmRegistry:
+    """
+    Registry for algorithm templates with fallback mechanisms
+    """
+    
+    def __init__(self):
+        """Initialize the algorithm registry"""
+        self.algorithms = {}
+        self._load_defaults()
+        self._try_load_custom()
+        logger.info(f"Initialized AlgorithmRegistry with {len(self.algorithms)} algorithms")
+    
+    def _load_defaults(self):
+        """Load default built-in algorithm templates"""
+        # Sorting algorithms
+        self.algorithms.update({
+            'quick_sort': """
 def quick_sort(arr):
     \"\"\"
     Quick sort implementation with O(n log n) average time complexity.
@@ -658,8 +672,7 @@ def quick_sort(arr):
     
     return quick_sort(left) + middle + quick_sort(right)
 """,
-        
-        'merge_sort': """
+            'merge_sort': """
 def merge_sort(arr):
     \"\"\"
     Merge sort implementation with O(n log n) time complexity.
@@ -688,11 +701,8 @@ def merge(left, right):
     result.extend(left[i:])
     result.extend(right[j:])
     return result
-"""
-    }
-    
-    SEARCH_ALGORITHMS = {
-        'binary_search': """
+""",
+            'binary_search': """
 def binary_search(arr, target):
     \"\"\"
     Binary search implementation with O(log n) time complexity.
@@ -711,10 +721,92 @@ def binary_search(arr, target):
     
     return -1  # Target not found
 """
-    }
+        })
+        
+        # Add other algorithms here...
     
-    GRAPH_ALGORITHMS = {}
-    DYNAMIC_PROGRAMMING_ALGORITHMS = {}
+    def _try_load_custom(self):
+        """Attempt to load custom algorithm templates from external module"""
+        try:
+            from algorithm_templates import (
+                SORTING_ALGORITHMS,
+                SEARCH_ALGORITHMS,
+                GRAPH_ALGORITHMS,
+                DYNAMIC_PROGRAMMING_ALGORITHMS
+            )
+            logger.info("Loaded custom algorithm templates from module")
+            
+            # Merge with defaults, prioritizing custom implementations
+            self.algorithms.update(SORTING_ALGORITHMS)
+            self.algorithms.update(SEARCH_ALGORITHMS)
+            self.algorithms.update(GRAPH_ALGORITHMS)
+            self.algorithms.update(DYNAMIC_PROGRAMMING_ALGORITHMS)
+        except ImportError:
+            logger.info("No custom algorithm templates found, using built-in defaults")
+        except Exception as e:
+            logger.warning(f"Error loading custom algorithm templates: {e}")
+    
+    def get_algorithm(self, algorithm_name: str) -> str:
+        """
+        Get template code for a specific algorithm
+        
+        Args:
+            algorithm_name: Name of the algorithm
+            
+        Returns:
+            Template code or empty string if not found
+        """
+        # Direct lookup
+        if algorithm_name in self.algorithms:
+            return self.algorithms[algorithm_name]
+        
+        # Try variations of the name
+        normalized_name = algorithm_name.lower().replace('_', '')
+        for key in self.algorithms.keys():
+            if key.lower().replace('_', '') == normalized_name:
+                return self.algorithms[key]
+        
+        # Try to find by partial match
+        for key in self.algorithms.keys():
+            if key.lower() in algorithm_name.lower() or algorithm_name.lower() in key.lower():
+                return self.algorithms[key]
+        
+        logger.warning(f"No template found for algorithm: {algorithm_name}")
+        return ""
+    
+    def get_algorithm_candidates(self, algorithm_name: str) -> List[str]:
+        """
+        Get potential replacement candidates for an algorithm
+        
+        Args:
+            algorithm_name: Name or description of the algorithm
+            
+        Returns:
+            List of candidate algorithm names
+        """
+        candidates = []
+        
+        # Algorithm families for categorization
+        algorithm_families = {
+            'sort': ['quick_sort', 'merge_sort', 'tim_sort', 'heap_sort'],
+            'search': ['binary_search', 'hash_search', 'interpolation_search'],
+            'graph': ['bfs', 'dfs', 'dijkstra', 'a_star'],
+            'dp': ['fibonacci', 'knapsack', 'edit_distance', 'lcs']
+        }
+        
+        # Find matching family
+        for family, family_algos in algorithm_families.items():
+            if family in algorithm_name.lower():
+                candidates.extend(family_algos)
+                
+        # If no family match, return algorithms with partial name match
+        if not candidates:
+            for key in self.algorithms.keys():
+                if (key.lower() in algorithm_name.lower() or 
+                    algorithm_name.lower() in key.lower()):
+                    candidates.append(key)
+        
+        return candidates
 
 def main():
     """Example usage of the code transformer"""
@@ -736,9 +828,14 @@ print(bubble_sort(test_array))
     transformer = CodeTransformer()
     
     # Replace bubble sort with quick sort
-    optimized_code = transformer.replace_algorithm(
+    optimized_code, errors = transformer.replace_algorithm(
         bubble_sort_code, 'bubble_sort', 'quick_sort'
     )
+    
+    if errors:
+        print("Errors encountered during optimization:")
+        for error in errors:
+            print(f"- {error}")
     
     print("Original code:")
     print(bubble_sort_code)
@@ -746,9 +843,12 @@ print(bubble_sort(test_array))
     print(optimized_code)
     
     # Execute the optimized code to demonstrate it works
-    print("\nExecuting optimized code:")
-    exec_globals = {}
-    exec(optimized_code, exec_globals)
+    try:
+        print("\nExecuting optimized code:")
+        exec_globals = {}
+        exec(optimized_code, exec_globals)
+    except Exception as e:
+        print(f"Error executing optimized code: {e}")
 
 if __name__ == "__main__":
     main()

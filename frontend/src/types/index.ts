@@ -1,12 +1,13 @@
 // Define the structure of API responses
 export interface ApiResponse {
   original_code: string;
-  optimized_code: string;
+  optimized_code: string | string[]; // Can be a string or array of strings
   original_complexity: string;
   optimized_complexity: string;
   explanation: string;
   processing_time: number;
   timestamp?: number;
+  applied_rules?: any[]; // New field for applied rules
 }
 
 // Define the structure we use in our frontend

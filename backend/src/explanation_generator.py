@@ -28,14 +28,15 @@ FINE_TUNED_MODEL_PATH = os.path.join(parent_dir, 'models', 'flan_t5_fine_tuned')
 # Import FLAN-T5 using multiple approaches to ensure it works in different environments
 FLANT5_AVAILABLE = False
 
-# First try the recommended import path from models.flan_t5
+# Try different import paths for FLAN-T5
 try:
+    # First try the recommended import path from models.flan_t5
     from models.flan_t5 import FlanT5ExplanationGenerator, get_explanation_generator
     FLANT5_AVAILABLE = True
     logger.info("FLAN-T5 model imported successfully (models.flan_t5)")
 except ImportError:
-    # If that fails, try direct import
     try:
+        # Try direct import
         from flan_t5 import FlanT5ExplanationGenerator, get_explanation_generator
         FLANT5_AVAILABLE = True
         logger.info("FLAN-T5 model imported successfully (direct)")
@@ -45,26 +46,21 @@ except ImportError:
             from ..models.flan_t5 import FlanT5ExplanationGenerator, get_explanation_generator
             FLANT5_AVAILABLE = True
             logger.info("FLAN-T5 model imported successfully (relative)")
-        except (ImportError, ValueError):
+        except ImportError:
             try:
-                # Try absolute import with backend prefix
+                # Try absolute import
                 from backend.models.flan_t5 import FlanT5ExplanationGenerator, get_explanation_generator
                 FLANT5_AVAILABLE = True
                 logger.info("FLAN-T5 model imported successfully (absolute)")
             except ImportError:
                 try:
-                    # Try with local path
-                    sys.path.append(os.path.join(parent_dir, 'models'))
-                    from flan_t5 import FlanT5ExplanationGenerator, get_explanation_generator
+                    # Try fallback import
+                    from models.explanation_fallback import ExplanationFallback as FlanT5ExplanationGenerator
+                    from models.explanation_fallback import get_explanation_generator
                     FLANT5_AVAILABLE = True
-                    logger.info("FLAN-T5 model imported successfully (local path)")
+                    logger.info("Using fallback explanation generator")
                 except ImportError:
-                    logger.warning("FLAN-T5 model not available. Using rule-based explanations only.")
-                    # Define dummy classes for type checking to work
-                    class FlanT5ExplanationGenerator:
-                        pass
-                    def get_explanation_generator(*args, **kwargs):
-                        return None
+                    logger.warning("FLAN-T5 model and fallback not available. Using rule-based explanations only.")
 
 # Singleton instance of explanation generator
 _explanation_generator = None

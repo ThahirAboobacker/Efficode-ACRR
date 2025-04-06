@@ -18,8 +18,9 @@
   
   .explanation-section {
     padding: 20px;
-    background-color: #2d2d2d;
+    background-color: #6b46c1;
     border-radius: 8px;
+    color: white;
   }
   
   .complexity-comparison {
