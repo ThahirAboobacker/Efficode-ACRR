@@ -43,26 +43,72 @@ FINE_TUNED_MODEL_PATH = os.path.join('..', 'models', 'flan_t5_fine_tuned')
 
 # Import required modules
 try:
-    from data_processing import DataProcessor
-    from feature_extraction import FeatureExtractor
-    from rule_based import RuleBasedOptimizer
-    from code_transformation import CodeTransformer
-    from complexity_analyzer import ComplexityAnalyzer
-    from explanation_generator import ExplanationGenerator
-    logger.info("Successfully imported modules directly")
+    # Try relative imports first
+    try:
+        from .data_processing import DataProcessor
+        from .feature_extraction import FeatureExtractor
+        from .rule_based import RuleBasedOptimizer
+        from .code_transformation import CodeTransformer
+        from .complexity_analyzer import ComplexityAnalyzer
+        from .explanation_generator import ExplanationGenerator
+        logger.info("Successfully imported modules using relative imports")
+    except ImportError:
+        # Fall back to direct imports
+        from data_processing import DataProcessor
+        from feature_extraction import FeatureExtractor
+        from rule_based import RuleBasedOptimizer
+        from code_transformation import CodeTransformer
+        from complexity_analyzer import ComplexityAnalyzer
+        from explanation_generator import ExplanationGenerator
+        logger.info("Successfully imported modules using direct imports")
 except ImportError as e:
     logger.critical(f"Failed to import required modules: {e}")
     logger.critical("Please ensure you're running from the correct directory and all dependencies are installed.")
     logger.critical(f"Current directory: {os.getcwd()}")
     sys.exit(1)
 
-# Initialize components
-data_processor = DataProcessor()
-feature_extractor = FeatureExtractor()
-rule_optimizer = RuleBasedOptimizer()
-code_transformer = CodeTransformer()
-complexity_analyzer = ComplexityAnalyzer()
-explanation_generator = ExplanationGenerator()
+# Initialize components with proper error handling
+try:
+    data_processor = DataProcessor()
+    logger.info("DataProcessor initialized")
+except Exception as e:
+    logger.warning(f"Failed to initialize DataProcessor: {e}")
+    data_processor = None
+
+try:
+    feature_extractor = FeatureExtractor()
+    logger.info("FeatureExtractor initialized")
+except Exception as e:
+    logger.warning(f"Failed to initialize FeatureExtractor: {e}")
+    feature_extractor = None
+
+try:
+    rule_optimizer = RuleBasedOptimizer()
+    logger.info("RuleBasedOptimizer initialized")
+except Exception as e:
+    logger.warning(f"Failed to initialize RuleBasedOptimizer: {e}")
+    rule_optimizer = None
+
+try:
+    code_transformer = CodeTransformer()
+    logger.info("CodeTransformer initialized")
+except Exception as e:
+    logger.warning(f"Failed to initialize CodeTransformer: {e}")
+    code_transformer = None
+
+try:
+    complexity_analyzer = ComplexityAnalyzer()
+    logger.info("ComplexityAnalyzer initialized")
+except Exception as e:
+    logger.warning(f"Failed to initialize ComplexityAnalyzer: {e}")
+    complexity_analyzer = None
+
+try:
+    explanation_generator = ExplanationGenerator()
+    logger.info("ExplanationGenerator initialized")
+except Exception as e:
+    logger.warning(f"Failed to initialize ExplanationGenerator: {e}")
+    explanation_generator = None
 
 class OptimizationConfig:
     """Configuration container for optimization settings."""
@@ -555,81 +601,51 @@ def configure_logging(args):
         logging.getLogger().addHandler(file_handler)
 
 
-def main():
-    """
-    Main entry point for the command-line interface.
-    """
-    # Parse arguments
-    args = parse_arguments()
-    
-    # Show version if requested
-    if args.version:
-        print("EFFICODE-ACRR v1.0.0")
-        return
-    
-    # Configure logging
-    configure_logging(args)
-    
-    # Load configuration from file if specified
-    config = None
-    if args.config:
-        logger.info(f"Loading configuration from {args.config}")
-        config = OptimizationConfig.from_file(args.config)
-    else:
-        # Create configuration from command-line args
-        config = OptimizationConfig.from_args(args)
-    
-    if args.verbose:
-        logger.info(f"Using configuration:\n{config}")
-    
-    # Get the code to optimize
-    code = None
-    if args.file:
-        try:
-            logger.info(f"Loading code from file: {args.file}")
-            code = load_code_from_file(args.file)
-        except Exception as e:
-            logger.error(f"Error loading code from file: {e}")
-            return 1
-    elif args.code:
-        code = args.code
-    else:
-        logger.error("Error: Either --file or --code must be provided")
-        return 1
-    
-    # Optimize the code
+def main() -> None:
+    """Main entry point for the EFFICODE-ACRR system."""
     try:
-        result = optimize_code(code, config)
+        # Parse command line arguments
+        args = parse_arguments()
+        
+        # Configure logging
+        configure_logging(args)
+        
+        # Create necessary directories
+        create_directories()
+        
+        # Check dependencies
+        if not check_dependencies():
+            logger.error("Missing required dependencies. Please install them and try again.")
+            sys.exit(1)
+            
+        # Initialize components
+        try:
+            # Store components in app context
+            app.config['components'] = {
+                'data_processor': data_processor,
+                'feature_extractor': feature_extractor,
+                'rule_based_optimizer': rule_optimizer,
+                'code_transformer': code_transformer,
+                'complexity_analyzer': complexity_analyzer,
+                'explanation_generator': explanation_generator
+            }
+            
+            # Check if at least one optimizer is available
+            if not any(comp for comp in app.config['components'].values()):
+                logger.error("No optimization components available. Please check the logs for initialization errors.")
+                sys.exit(1)
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize components: {str(e)}")
+            sys.exit(1)
+        
+        # Start the server
+        logger.info(f"Starting server on {args.host}:{args.port}")
+        serve(app, host=args.host, port=args.port)
+        
     except Exception as e:
-        logger.error(f"Unhandled error during optimization: {e}")
-        if args.verbose:
-            logger.error(traceback.format_exc())
-        return 1
-    
-    # Output the results
-    if args.output:
-        result.save(args.output, format=args.format)
-    else:
-        # Print to console
-        if args.format == 'json':
-            print(result.to_json())
-        else:
-            print(result.to_text())
-    
-    # Show performance metrics if profiling is enabled
-    if args.profile:
-        print("\nPerformance Metrics:")
-        for step, duration in result.metrics.get('steps', {}).items():
-            print(f"- {step}: {duration:.4f}s")
-        print(f"- Total execution time: {result.metrics.get('total_execution_time', 0):.4f}s")
-    
-    # Show errors if any occurred and verbose logging is enabled
-    if args.verbose and 'errors' in result.metrics and result.metrics['errors']:
-        print("\nErrors encountered:")
-        for error in result.metrics['errors']:
-            print(f"- {error}")
-    
-    return 0
+        logger.error(f"Fatal error: {str(e)}")
+        sys.exit(1)
 
 
 def setup_logging(log_level: str = "INFO") -> None:
@@ -681,72 +697,6 @@ def check_dependencies() -> bool:
         logging.error(f"Missing required packages: {', '.join(missing_packages)}")
         return False
     return True
-
-def parse_arguments() -> argparse.Namespace:
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='EFFICODE-ACRR Backend Service')
-    parser.add_argument(
-        '--host',
-        default=Config.HOST,
-        help='Host to run the server on'
-    )
-    parser.add_argument(
-        '--port',
-        type=int,
-        default=Config.PORT,
-        help='Port to run the server on'
-    )
-    parser.add_argument(
-        '--log-level',
-        default='INFO',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-        help='Set the logging level'
-    )
-    parser.add_argument(
-        '--production',
-        action='store_true',
-        help='Run in production mode using waitress'
-    )
-    return parser.parse_args()
-
-def main() -> None:
-    """Main entry point for the application"""
-    try:
-        # Parse command line arguments
-        args = parse_arguments()
-        
-        # Setup logging
-        setup_logging(args.log_level)
-        logging.info("Starting EFFICODE-ACRR backend service...")
-        
-        # Create necessary directories
-        create_directories()
-        
-        # Check dependencies
-        if not check_dependencies():
-            sys.exit(1)
-        
-        # Log configuration
-        logging.info(f"Host: {args.host}")
-        logging.info(f"Port: {args.port}")
-        logging.info(f"Log Level: {args.log_level}")
-        logging.info(f"Production Mode: {args.production}")
-        
-        # Start server
-        if args.production:
-            logging.info("Running in production mode with waitress")
-            serve(app, host=args.host, port=args.port)
-        else:
-            logging.info("Running in development mode with Flask")
-            app.run(
-                host=args.host,
-                port=args.port,
-                debug=not args.production
-            )
-            
-    except Exception as e:
-        logging.error(f"Failed to start server: {e}")
-        sys.exit(1)
 
 if __name__ == "__main__":
     main() 

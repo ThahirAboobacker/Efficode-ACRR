@@ -405,3 +405,52 @@ if __name__ == "__main__":
         
         print("\n--- Fallback Explanation ---")
         print(test_explanation)
+
+class ExplanationGenerator:
+    """
+    Generates explanations for code optimizations
+    """
+    
+    def __init__(self):
+        """Initialize the explanation generator"""
+        logger.info("ExplanationGenerator initialized")
+        
+    def generate_explanation(self, 
+                           original_code: str,
+                           optimized_code: str,
+                           original_complexity: str,
+                           optimized_complexity: str,
+                           applied_rules: List[Dict[str, Any]]) -> str:
+        """
+        Generate an explanation for the optimization performed
+        
+        Args:
+            original_code: The original code
+            optimized_code: The optimized code
+            original_complexity: The original code complexity
+            optimized_complexity: The optimized code complexity
+            applied_rules: List of applied optimization rules
+            
+        Returns:
+            Explanation of the optimizations performed
+        """
+        if not applied_rules:
+            return "No optimizations were applied to the code."
+            
+        # Start with complexity comparison
+        lines = [
+            f"The code was optimized from {original_complexity} to {optimized_complexity} complexity.",
+            ""
+        ]
+        
+        # Add explanation of each applied rule
+        lines.append("Applied optimizations:")
+        for rule in applied_rules:
+            name = rule.get('name', 'Unknown optimization')
+            description = rule.get('description', 'No description available')
+            line_num = rule.get('line', None)
+            line_info = f" at line {line_num}" if line_num else ""
+            
+            lines.append(f"- {name}{line_info}: {description}")
+        
+        return "\n".join(lines)

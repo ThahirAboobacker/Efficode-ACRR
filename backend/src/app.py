@@ -63,133 +63,35 @@ except ImportError:
         LOG_FILE = os.path.join(log_dir, "efficode.log")
 
 app = Flask(__name__)
-# Configure CORS to allow requests from all origins
-CORS(app, resources={
-    r"/*": {
-        "origins": ["http://localhost:3000", "http://127.0.0.1:3000", "*"],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization", "Accept"]
-    }
-})
+CORS(app)  # Enable CORS for all routes
 
 # Initialize models with fallbacks
 try:
-    # Attempt to import the required modules
-    try:
-        # Try importing from models directory first
-        try:
-            from models.codebert_model import CodeBERTOptimizer
-            logger.info("Initialized CodeBERTOptimizer from models directory")
-        except ImportError:
-            # Try current directory
-            try:
-                from codebert_optimizer import CodeBERTOptimizer
-                logger.info("Initialized CodeBERTOptimizer from current directory")
-            except ImportError:
-                # Try src directory
-                try:
-                    from src.codebert_optimizer import CodeBERTOptimizer
-                    logger.info("Initialized CodeBERTOptimizer from src directory")
-                except ImportError:
-                    raise ImportError("CodeBERTOptimizer not found in any expected location")
-        
-        optimizer = CodeBERTOptimizer()
-        logger.info("Initialized CodeBERTOptimizer successfully")
-    except (ImportError, Exception) as e:
-        logger.warning(f"Failed to initialize CodeBERTOptimizer: {e}")
-        # Simple fallback implementation for CodeBERTOptimizer
-        class SimpleOptimizer:
-            def optimize(self, code, level="medium"):
-                return code
-            def get_applied_rules(self):
-                return []
-        optimizer = SimpleOptimizer()
-        logger.info("Using SimpleOptimizer as fallback")
-    
-    try:
-        from models.flan_t5 import FlanT5ExplanationGenerator
-        explanation_generator = FlanT5ExplanationGenerator()
-        logger.info("Initialized FlanT5ExplanationGenerator")
-    except (ImportError, Exception) as e:
-        logger.warning(f"Failed to initialize FlanT5ExplanationGenerator: {e}")
-        # Simple fallback implementation
-        class SimpleExplanationGenerator:
-            def generate_explanation(self, original_code, optimized_code, complexity_before, complexity_after, applied_rules):
-                return f"Code optimized from {complexity_before} to {complexity_after}."
-        explanation_generator = SimpleExplanationGenerator()
-        logger.info("Using SimpleExplanationGenerator as fallback")
-    
-    # Import rule-based optimizer and RuleBasedOptimizer class
-    try:
-        # Try to import from src directory first
-        try:
-            from src.rule_based import apply_optimization_rules, RuleBasedOptimizer
-        except ImportError:
-            from rule_based import apply_optimization_rules, RuleBasedOptimizer
-        logger.info("Imported rule-based optimizer")
-    except (ImportError, Exception) as e:
-        logger.warning(f"Failed to import rule-based optimizer: {e}")
-        # Create fallback functions
-        def apply_optimization_rules(code, level="medium"):
-            return code
-            
-        class RuleBasedOptimizer:
-            def optimize(self, code, level="medium"):
-                return code
-            def get_applied_rules(self):
-                return []
-        logger.info("Using fallback rule-based optimizer")
-    
-    # Import the complexity analyzer
-    try:
-        # Try to import from src directory first
-        try:
-            from src.complexity_analyzer import analyze_complexity, ComplexityAnalyzer
-        except ImportError:
-            from complexity_analyzer import analyze_complexity, ComplexityAnalyzer
-        complexity_analyzer = ComplexityAnalyzer()
-        logger.info("Initialized ComplexityAnalyzer")
-    except (ImportError, Exception) as e:
-        logger.warning(f"Failed to initialize ComplexityAnalyzer: {e}")
-        # Simple fallback implementation
-        class SimpleComplexityAnalyzer:
-            def analyze(self, code):
-                return {
-                    "time_complexity": "O(n)",
-                    "space_complexity": "O(n)",
-                    "explanation": "Basic complexity analysis."
-                }
-        complexity_analyzer = SimpleComplexityAnalyzer()
-        
-        # Fallback for analyze_complexity
-        def analyze_complexity(code):
-            return "O(n)"
-            
-        logger.info("Using SimpleComplexityAnalyzer as fallback")
-    
-    try:
-        # Try to import from src directory first
-        try:
-            from src.code_transformation import CodeTransformer
-        except ImportError:
-            from code_transformation import CodeTransformer
-        code_transformer = CodeTransformer()
-        logger.info("Initialized CodeTransformer")
-    except (ImportError, Exception) as e:
-        logger.warning(f"Failed to initialize CodeTransformer: {e}")
-        # Simple fallback implementation
-        class SimpleCodeTransformer:
-            def transform(self, code):
-                return True  # Always succeed for compatibility
-            def parse_code(self, code):
-                return code
-        code_transformer = SimpleCodeTransformer()
-        logger.info("Using SimpleCodeTransformer as fallback")
-    
-    logger.info("Models initialized successfully")
+    # Import rule-based optimizer
+    from rule_based import RuleBasedOptimizer
+    rule_based_optimizer = RuleBasedOptimizer()
+    logger.info("Initialized RuleBasedOptimizer successfully")
 except Exception as e:
-    logger.error(f"Error initializing models: {e}")
-    raise
+    logger.error(f"Failed to initialize RuleBasedOptimizer: {e}")
+    rule_based_optimizer = None
+
+try:
+    # Import CodeBERT optimizer
+    from codebert_optimizer import CodeBERTOptimizer
+    codebert_optimizer = CodeBERTOptimizer()
+    logger.info("Initialized CodeBERTOptimizer successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize CodeBERTOptimizer: {e}")
+    codebert_optimizer = None
+
+# Initialize complexity analyzer
+try:
+    from complexity_analyzer import ComplexityAnalyzer
+    complexity_analyzer = ComplexityAnalyzer()
+    logger.info("Initialized ComplexityAnalyzer successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize ComplexityAnalyzer: {e}")
+    complexity_analyzer = None
 
 # Define CORS handler decorator
 def handle_cors(f):
@@ -232,222 +134,94 @@ def health_check():
 @app.route('/api/optimize', methods=['POST'])
 @handle_cors
 def optimize_code():
-    """
-    API endpoint to optimize code based on the provided level
-    
-    Expected JSON payload:
-    {
-        "code": "Python code as string",
-        "level": "low|medium|high"
-    }
-    
-    Returns:
-    {
-        "original_code": "Original code",
-        "optimized_code": "Optimized code",
-        "original_complexity": "O(n²)",
-        "optimized_complexity": "O(n log n)",
-        "optimization_method": "rule_based|codebert|none",
-        "explanation": "Detailed explanation of optimizations",
-        "processing_time": 0.25,
-        "applied_rules": []
-    }
-    """
-    # Set a maximum execution time for this request
-    MAX_PROCESSING_TIME = 15  # seconds
-    
+    """Optimize the provided code using available optimizers."""
     try:
-        logger.info("Starting optimize_code endpoint processing")
         start_time = time.time()
-        
-        # Get the request data
-        request_data = request.get_json()
-        
-        # Validate request data
-        if not request_data or 'code' not in request_data:
-            logger.error("Invalid request: missing 'code' field")
-            return jsonify({'error': "Missing 'code' field"}), 400
-        
-        code = request_data.get('code', '')
-        optimization_level = request_data.get('level', 'medium')
-        
-        # Check code length to avoid excessive processing
-        if len(code) > 20000:  # Set a reasonable limit
-            logger.warning(f"Code too large: {len(code)} characters. Limiting to first 20000.")
-            code = code[:20000]
-        
-        # Log the request
-        logger.info(f"Received optimization request: level={optimization_level}, code_length={len(code)}")
-        logger.debug(f"Code snippet: {code[:100]}..." if len(code) > 100 else code)
+        data = request.get_json()
+        if not data or 'code' not in data:
+            return jsonify({'error': 'No code provided'}), 400
             
-        # Validate the code
-        if not code or not code.strip():
+        code = data['code']
+        optimization_level = data.get('optimization_level', 'medium')
+        
+        # Validate code size
+        if len(code) > Config.MAX_CODE_LENGTH:
             return jsonify({
-                'original_code': code,
-                'optimized_code': code,
-                'original_complexity': 'O(1)',
-                'optimized_complexity': 'O(1)',
-                'optimization_method': 'none',
-                'explanation': 'No code provided or code is empty.',
-                'processing_time': 0,
-                'applied_rules': []
-            })
+                'error': f'Code exceeds maximum length of {Config.MAX_CODE_LENGTH} characters'
+            }), 400
             
-        # Analyze original code complexity
-        try:
-            logger.info("Analyzing original code complexity...")
-            original_complexity = analyze_complexity(code)
-            logger.info(f"Original complexity: {original_complexity}")
-        except Exception as e:
-            logger.error(f"Error analyzing complexity: {str(e)}")
-            original_complexity = "O(?)"
-        
-        # Default response values
-        optimized_code = code
-        optimization_method = "none"
-        applied_rules = []
-        rule_based_applied_rules = []
-        codebert_improvements = []
-        explanation = "No applicable optimizations were found for this code."
-        
-        # Step 1: Apply rule-based optimization with timeout
-        try:
-            logger.info("Applying rule-based optimization...")
-            
-            # Check if we're already taking too long
-            if time.time() - start_time > MAX_PROCESSING_TIME / 3:
-                logger.warning("Skipping rule-based optimization due to time constraints")
-            else:
-                # Initialize the rule-based optimizer
-                rule_optimizer = RuleBasedOptimizer()
-                
-                # Apply the optimizations with a timeout guard
-                rule_start_time = time.time()
-                
-                # Apply rule-based optimization with a timeout check
-                try:
-                    rule_based_result = rule_optimizer.optimize(code, optimization_level)
-                    
-                    # Get applied rules
-                    rule_based_applied_rules = rule_optimizer.get_applied_rules()
-                    
-                    # Always capture rule-based results, even if no changes
-                    intermediate_code = rule_based_result
-                    applied_rules.extend(rule_based_applied_rules)
-                    
-                    if rule_based_applied_rules and rule_based_result != code:
-                        optimization_method = "rule_based"
-                        logger.info(f"Rule-based optimization applied {len(rule_based_applied_rules)} rules in {time.time() - rule_start_time:.2f}s")
-                    else:
-                        logger.info("Rule-based optimization made no changes")
-                        intermediate_code = code
-                except Exception as e:
-                    logger.error(f"Error during rule-based optimization: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    intermediate_code = code
-        except Exception as e:
-            logger.error(f"Error applying rule-based optimizations: {str(e)}")
-            logger.error(traceback.format_exc())
-            # Continue with original code if rule-based fails
-            intermediate_code = code
-            
-        # Check for timeout before proceeding to next step
-        if time.time() - start_time > (MAX_PROCESSING_TIME * 2/3):
-            logger.warning("Skipping CodeBERT optimization due to time constraints")
-            optimized_code = intermediate_code
-        else:
-            # Step 2: Apply CodeBERT on top of rule-based results
+        # Analyze original complexity
+        original_complexity = "Unknown"
+        if complexity_analyzer:
             try:
-                logger.info("Applying CodeBERT optimization...")
-                # Initialize CodeBERT optimizer
-                codebert_start_time = time.time()
-                
-                # Apply CodeBERT optimization with timeout monitoring
-                try:
-                    codebert_optimizer = CodeBERTOptimizer()
-                    codebert_result, codebert_improvements, errors = codebert_optimizer.optimize(intermediate_code, optimization_level)
-                    
-                    if errors:
-                        for error in errors:
-                            logger.warning(f"CodeBERT optimizer error: {error}")
-                    
-                    if codebert_improvements and codebert_result != intermediate_code:
-                        # CodeBERT made additional improvements
-                        optimized_code = codebert_result
-                        
-                        # Update optimization method to indicate both were used
-                        if optimization_method == "rule_based":
-                            optimization_method = "rule_based+codebert"
-                        else:
-                            optimization_method = "codebert"
-                        
-                        logger.info(f"CodeBERT optimization applied {len(codebert_improvements)} improvements in {time.time() - codebert_start_time:.2f}s")
-                    else:
-                        # If CodeBERT made no changes, use the intermediate code
-                        optimized_code = intermediate_code
-                        logger.info("CodeBERT optimization made no additional changes")
-                except Exception as e:
-                    logger.error(f"Error in CodeBERT processing: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    # Use intermediate code if an error occurs
-                    optimized_code = intermediate_code
+                original_complexity = complexity_analyzer.analyze(code)
             except Exception as e:
-                logger.error(f"Error applying CodeBERT optimizations: {str(e)}")
-                logger.error(traceback.format_exc())
-                # Use the intermediate code if CodeBERT fails
-                optimized_code = intermediate_code
+                logger.error(f"Error analyzing original complexity: {e}")
         
-        # Analyze optimized code complexity
-        try:
-            logger.info("Analyzing optimized code complexity...")
-            optimized_complexity = analyze_complexity(optimized_code)
-            logger.info(f"Optimized complexity: {optimized_complexity}")
-        except Exception as e:
-            logger.error(f"Error analyzing optimized complexity: {str(e)}")
-            optimized_complexity = original_complexity
+        # Initialize optimization variables
+        optimized_code = code
+        applied_rules = []
         
-        # Calculate processing time
-        processing_time = time.time() - start_time
-        logger.info(f"Completed optimization in {processing_time:.2f}s using method: {optimization_method}")
+        # Apply rule-based optimization
+        if rule_based_optimizer:
+            try:
+                result = rule_based_optimizer.optimize(code, optimization_level)
+                if isinstance(result, dict):
+                    optimized_code = result.get('optimized_code', code)
+                    applied_rules = result.get('applied_rules', [])
+                else:
+                    optimized_code = result.optimized_code or code
+                    applied_rules = [{
+                        'name': change.description,
+                        'description': f"Lines {change.line_start}-{change.line_end}: {change.description}"
+                    } for change in result.detailed_changes]
+                logger.info(f"Applied {len(applied_rules)} rule-based optimizations")
+            except Exception as e:
+                logger.error(f"Error in rule-based optimization: {e}")
         
-        # Ensure we are within the maximum processing time
-        if processing_time > MAX_PROCESSING_TIME:
-            logger.warning(f"Optimization took longer than expected: {processing_time:.2f}s")
+        # Apply CodeBERT optimization
+        if codebert_optimizer:
+            try:
+                codebert_result, codebert_improvements, codebert_errors = codebert_optimizer.optimize(optimized_code, optimization_level)
+                if codebert_errors:
+                    logger.warning(f"CodeBERT optimization warnings: {codebert_errors}")
+                if codebert_improvements:
+                    optimized_code = codebert_result
+                    logger.info(f"Applied {len(codebert_improvements)} CodeBERT improvements")
+                else:
+                    logger.info("CodeBERT optimization made no changes")
+            except Exception as e:
+                logger.error(f"Error in CodeBERT optimization: {e}")
         
-        # Prepare explanation
-        if optimization_method != "none":
-            explanation = f"Code optimized from {original_complexity} to {optimized_complexity} complexity."
-            if rule_based_applied_rules:
-                explanation += f" Applied {len(rule_based_applied_rules)} optimization rules."
-            if codebert_improvements:
-                explanation += f" Applied {len(codebert_improvements)} CodeBERT improvements."
+        # Analyze optimized complexity
+        optimized_complexity = "Unknown"
+        if complexity_analyzer:
+            try:
+                optimized_complexity = complexity_analyzer.analyze(optimized_code)
+            except Exception as e:
+                logger.error(f"Error analyzing optimized complexity: {e}")
+        
+        # Generate explanation
+        explanation = "Code optimization completed successfully."
+        if applied_rules:
+            explanation = "Applied optimizations:\n" + "\n".join(
+                f"- {rule['name']}: {rule['description']}"
+                for rule in applied_rules
+            )
         
         return jsonify({
             'original_code': code,
             'optimized_code': optimized_code,
             'original_complexity': original_complexity,
             'optimized_complexity': optimized_complexity,
-            'optimization_method': optimization_method,
             'explanation': explanation,
-            'processing_time': processing_time,
-            'applied_rules': applied_rules
+            'processing_time': time.time() - start_time,
+            'timestamp': int(time.time() * 1000)
         })
-    except Exception as e:
-        # Catch any unexpected exceptions and return a proper response
-        elapsed_time = time.time() - start_time if 'start_time' in locals() else 0
-        logger.error(f"Unhandled error in optimize_code after {elapsed_time:.2f}s: {str(e)}")
-        logger.error(traceback.format_exc())
         
-        # Ensure we return a proper response
-        return jsonify({
-            'status': 'error',
-            'error': f"Optimization failed: {str(e)}",
-            'original_code': code if 'code' in locals() else "",
-            'optimized_code': code if 'code' in locals() else "",
-            'optimization_method': 'none',
-            'explanation': f"An error occurred during optimization: {str(e)}",
-            'processing_time': elapsed_time
-        }), 500
+    except Exception as e:
+        logger.error(f"Error during optimization: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # Add a root route to provide basic information
 @app.route('/', methods=['GET'])
@@ -475,13 +249,15 @@ def method_not_allowed(error):
     }), 405
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5500))
-    print(f"Starting server on port {port}...")
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     
-    try:
-        # Always run in development mode for testing
-        print("Starting in development mode...")
-        app.run(host='0.0.0.0', port=port, debug=True)
-    except Exception as e:
-        print(f"Error starting server: {e}")
-        logger.error(f"Error starting server: {e}", exc_info=True)
+    # Print starting message
+    print("Starting Efficode server on http://0.0.0.0:5000")
+    print("Press CTRL+C to stop the server")
+    
+    # Run the application with explicit settings
+    app.run(debug=True, host='0.0.0.0', port=5000)

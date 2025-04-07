@@ -17,15 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def analyze_complexity(code: str) -> str:
-    """
-    Analyze the complexity of code
-        
-        Args:
-            code: Python code as string
-            
-        Returns:
-        Complexity as a string (e.g., "O(n)")
-    """
+    """Analyze the complexity of a Python code snippet."""
     try:
         # Try parsing the code
         tree = ast.parse(code)
@@ -38,7 +30,7 @@ def analyze_complexity(code: str) -> str:
         complexity = analyzer.get_complexity()
         
         return complexity
-        except Exception as e:
+    except Exception as e:
         logger.error(f"Error analyzing complexity: {e}")
         return "O(n)"  # Default fallback
 

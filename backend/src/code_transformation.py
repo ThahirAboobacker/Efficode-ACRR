@@ -15,6 +15,7 @@ import logging
 import inspect
 import textwrap
 from typing import Dict, List, Tuple, Union, Optional, Any, Callable
+import astor
 
 # Set up logging
 logging.basicConfig(
@@ -50,7 +51,9 @@ except ImportError:
     # Define default algorithm templates at the end of the file
 
 class CodeTransformer:
-    """Main class for code transformation operations"""
+    """
+    Applies code transformations for optimization
+    """
     
     def __init__(self):
         """Initialize the code transformer"""

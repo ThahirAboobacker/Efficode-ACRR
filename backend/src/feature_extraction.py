@@ -37,44 +37,120 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class FeatureExtractor:
-    """Extracts and processes features from code snippets"""
+    """
+    Extracts features from code for analysis
+    """
     
     def __init__(self):
         """Initialize the feature extractor"""
-        self.parse_errors = 0
-        self.processed_samples = 0
+        logger.info("FeatureExtractor initialized")
         
-        # Track common AST node types for feature extraction
-        self.tracked_nodes = {
-            ast.For: 'for_loops',
-            ast.While: 'while_loops',
-            ast.If: 'if_statements',
-            ast.FunctionDef: 'function_defs',
-            ast.ClassDef: 'class_defs',
-            ast.ListComp: 'list_comprehensions',
-            ast.DictComp: 'dict_comprehensions',
-            ast.SetComp: 'set_comprehensions',
-            ast.BinOp: 'binary_operations',
-            ast.Compare: 'comparisons',
-            ast.Call: 'function_calls',
-            ast.Return: 'return_statements',
-            ast.Assign: 'assignments',
-            ast.AugAssign: 'augmented_assignments'
+    def extract_features(self, code: str) -> Dict[str, Any]:
+        """
+        Extract features from code
+        
+        Args:
+            code: The Python code to analyze
+            
+        Returns:
+            Dictionary of extracted features
+        """
+        features = {
+            'num_lines': 0,
+            'num_functions': 0,
+            'num_classes': 0,
+            'num_loops': 0,
+            'max_loop_depth': 0,
+            'num_conditionals': 0,
+            'uses_comprehensions': False,
+            'uses_recursion': False
         }
         
-        # Track complexity indicator patterns
-        self.complexity_patterns = {
-            'iterative_nested': 'O(n²) or higher',
-            'iterative_simple': 'O(n)',
-            'recursive': 'Varies, potentially O(2^n)',
-            'recursive_divide_conquer': 'Often O(n log n)',
-            'constant': 'O(1)',
-            'logarithmic': 'O(log n)'
-        }
-        
-        # Initialize feature statistics
-        self.feature_stats = {}
+        try:
+            # Parse the code
+            tree = ast.parse(code)
+            
+            # Count lines
+            features['num_lines'] = len(code.splitlines())
+            
+            # Count functions and classes
+            features['num_functions'] = sum(1 for node in ast.walk(tree) if isinstance(node, ast.FunctionDef))
+            features['num_classes'] = sum(1 for node in ast.walk(tree) if isinstance(node, ast.ClassDef))
+            
+            # Count loops
+            features['num_loops'] = sum(1 for node in ast.walk(tree) 
+                                     if isinstance(node, (ast.For, ast.While)))
+            
+            # Check for list/dict/set comprehensions
+            features['uses_comprehensions'] = any(
+                isinstance(node, (ast.ListComp, ast.DictComp, ast.SetComp))
+                for node in ast.walk(tree)
+            )
+            
+            # Check for conditionals
+            features['num_conditionals'] = sum(1 for node in ast.walk(tree)
+                                           if isinstance(node, ast.If))
+            
+            # Analyze loop depth
+            features['max_loop_depth'] = self._calculate_max_loop_depth(tree)
+            
+            # Check for recursion
+            function_calls = {}
+            self._find_function_calls(tree, function_calls)
+            features['uses_recursion'] = self._check_recursion(function_calls)
+            
+        except Exception as e:
+            logger.error(f"Error extracting features: {e}")
+            
+        return features
     
+    def _calculate_max_loop_depth(self, tree: ast.AST) -> int:
+        """Calculate the maximum loop nesting depth in the code"""
+        max_depth = 0
+        
+        class LoopVisitor(ast.NodeVisitor):
+            def __init__(self):
+                self.current_depth = 0
+                self.max_depth = 0
+                
+            def visit_For(self, node):
+                self.current_depth += 1
+                self.max_depth = max(self.max_depth, self.current_depth)
+                # Visit children
+                self.generic_visit(node)
+                self.current_depth -= 1
+                
+            def visit_While(self, node):
+                self.current_depth += 1
+                self.max_depth = max(self.max_depth, self.current_depth)
+                # Visit children
+                self.generic_visit(node)
+                self.current_depth -= 1
+        
+        visitor = LoopVisitor()
+        visitor.visit(tree)
+        return visitor.max_depth
+    
+    def _find_function_calls(self, tree: ast.AST, function_calls: Dict[str, List[str]]) -> None:
+        """Find all function calls in the code"""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                function_name = node.name
+                calls = []
+                
+                for subnode in ast.walk(node):
+                    if isinstance(subnode, ast.Call) and isinstance(subnode.func, ast.Name):
+                        calls.append(subnode.func.id)
+                
+                function_calls[function_name] = calls
+    
+    def _check_recursion(self, function_calls: Dict[str, List[str]]) -> bool:
+        """Check if the code contains recursive function calls"""
+        for func_name, calls in function_calls.items():
+            if func_name in calls:
+                return True
+        return False
+
     def extract_code_features(self, code: str) -> Dict[str, Any]:
         """
         Extract comprehensive features from a code snippet
