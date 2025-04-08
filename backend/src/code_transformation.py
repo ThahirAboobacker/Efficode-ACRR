@@ -98,28 +98,14 @@ class CodeTransformer:
         Returns:
             Tuple of (AST object or None if parsing fails, list of error messages)
         """
-        errors = []
-        
-        if not isinstance(code, str) or not code.strip():
-            error_msg = "Empty or invalid code provided"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            return None, errors
-            
         try:
             self.original_code = code
             self.ast_tree = ast.parse(code)
-            return self.ast_tree, errors
-        except SyntaxError as e:
-            error_msg = f"Syntax error while parsing code: {str(e)}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            return None, errors
+            return self.ast_tree, []
         except Exception as e:
-            error_msg = f"Error parsing code: {str(e)}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            return None, errors
+            error = f"Error parsing code: {str(e)}"
+            logger.error(error)
+            return None, [error]
     
     def transform_code(self, ast_tree: Optional[ast.AST] = None, 
                        optimizations: List[str] = ['all']) -> Tuple[Optional[ast.AST], List[str]]:
@@ -134,18 +120,15 @@ class CodeTransformer:
         Returns:
             Tuple of (transformed AST, error messages) or (None, error messages) if transformation fails
         """
-        errors = []
-        
-        if ast_tree is not None:
-            self.ast_tree = ast_tree
-            
-        if self.ast_tree is None:
-            error_msg = "No AST available for transformation"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            return None, errors
-        
         try:
+            if ast_tree is not None:
+                self.ast_tree = ast_tree
+            
+            if self.ast_tree is None:
+                error = "No AST available for transformation"
+                logger.error(error)
+                return None, [error]
+            
             # Create a copy of the AST to transform
             transformer = ASTTransformer()
             
@@ -158,21 +141,19 @@ class CodeTransformer:
                     logger.info(f"Applying {opt} optimization")
                     transformer.add_transformation(self.transformation_rules[opt])
                 else:
-                    warning_msg = f"Unknown optimization type: {opt}"
-                    logger.warning(warning_msg)
-                    errors.append(warning_msg)
+                    warning = f"Unknown optimization type: {opt}"
+                    logger.warning(warning)
             
             # Apply the transformations
             transformed_ast = transformer.visit(self.ast_tree)
             ast.fix_missing_locations(transformed_ast)
             
-            return transformed_ast, errors
+            return transformed_ast, []
             
         except Exception as e:
-            error_msg = f"Error transforming code: {str(e)}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            return None, errors
+            error = f"Error transforming code: {str(e)}"
+            logger.error(error)
+            return None, [error]
     
     def replace_algorithm(self, code: str, source_algo: str, target_algo: str) -> Tuple[str, List[str]]:
         """
@@ -186,12 +167,6 @@ class CodeTransformer:
         Returns:
             Tuple of (code with replaced algorithm, list of error messages)
         """
-        errors = []
-        
-        if not code or not source_algo or not target_algo:
-            errors.append("Missing required parameters for algorithm replacement")
-            return code, errors
-        
         try:
             # Parse the code
             if self.ast_tree is None or self.original_code != code:
@@ -199,35 +174,31 @@ class CodeTransformer:
             
             # If we still don't have a valid AST, return the original code
             if self.ast_tree is None:
-                errors.append("Failed to parse code into AST")
-                return code, errors
+                return code, ["Failed to parse code into AST"]
             
             # Identify algorithm function
             func_finder = FunctionFinder(source_algo)
             func_finder.visit(self.ast_tree)
             
             if not func_finder.found_function:
-                warning_msg = f"Could not find function for {source_algo}"
-                logger.warning(warning_msg)
-                errors.append(warning_msg)
-                return code, errors
+                warning = f"Could not find function for {source_algo}"
+                logger.warning(warning)
+                return code, [warning]
             
             # Get the replacement algorithm code
             replacement_code = self.algorithm_registry.get_algorithm(target_algo)
             if not replacement_code:
-                warning_msg = f"No template found for {target_algo}"
-                logger.warning(warning_msg)
-                errors.append(warning_msg)
-                return code, errors
+                warning = f"No template found for {target_algo}"
+                logger.warning(warning)
+                return code, [warning]
             
             # Parse the replacement code
             try:
                 replacement_ast = ast.parse(replacement_code)
             except SyntaxError:
-                error_msg = f"Syntax error in replacement algorithm template for {target_algo}"
-                logger.error(error_msg)
-                errors.append(error_msg)
-                return code, errors
+                error = f"Syntax error in replacement algorithm template for {target_algo}"
+                logger.error(error)
+                return code, [error]
             
             # Create a new AST with the replaced function
             replacer = FunctionReplacer(func_finder.function_name, replacement_ast, target_algo)
@@ -238,10 +209,9 @@ class CodeTransformer:
             return new_code, errors
             
         except Exception as e:
-            error_msg = f"Error replacing algorithm: {str(e)}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            return code, errors
+            error = f"Error replacing algorithm: {str(e)}"
+            logger.error(error)
+            return code, [error]
     
     def generate_optimized_code(self, ast_tree: Optional[ast.AST] = None) -> Tuple[str, List[str]]:
         """
@@ -253,25 +223,22 @@ class CodeTransformer:
         Returns:
             Tuple of (generated code as string, list of error messages)
         """
-        errors = []
-        
-        if ast_tree is None:
-            if self.ast_tree is None:
-                error_msg = "No AST available for code generation"
-                logger.error(error_msg)
-                errors.append(error_msg)
-                return "", errors
-            ast_tree = self.ast_tree
-        
         try:
+            if ast_tree is None:
+                if self.ast_tree is None:
+                    error = "No AST available for code generation"
+                    logger.error(error)
+                    return "", [error]
+                ast_tree = self.ast_tree
+            
             # Generate code using best available formatter
             if astor:
                 try:
                     optimized_code = astor.to_source(ast_tree)
                 except Exception as e:
-                    error_msg = f"astor failed to generate code: {e}"
-                    logger.warning(error_msg)
-                    errors.append(error_msg)
+                    warning = f"astor failed to generate code: {e}"
+                    logger.warning(warning)
+                    return "", [warning]
                     
                     if astunparse:
                         optimized_code = astunparse.unparse(ast_tree)
@@ -296,15 +263,12 @@ class CodeTransformer:
             optimized_code = self._clean_generated_code(optimized_code)
             
             self.optimized_code = optimized_code
-            return optimized_code, errors
+            return optimized_code, []
             
         except Exception as e:
-            error_msg = f"Error generating code: {str(e)}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            
-            # If code generation fails, return the original code
-            return self.original_code if self.original_code else "", errors
+            error = f"Error generating code: {str(e)}"
+            logger.error(error)
+            return self.original_code if self.original_code else "", [error]
     
     def _clean_generated_code(self, code: str) -> str:
         """

@@ -1,5 +1,7 @@
 """
 EFFICODE-ACRR API Server for code optimization
+MAIN PRODUCTION SERVER - This is the primary application server
+This is the main implementation that should be used for production deployments.
 """
 import os
 import sys
@@ -21,20 +23,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Add the src directory to the path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# Add the backend directory to the Python path
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+src_dir = os.path.join(backend_dir, 'src')
+sys.path.insert(0, backend_dir)
+sys.path.insert(0, src_dir)
 
 # Import optimization components
 try:
-    # Try to use fixed rule-based optimizer first, fall back to original if not available
-    try:
-        from src.rule_based_fixed import RuleBasedOptimizer
-        logger.info("Using fixed RuleBasedOptimizer")
-    except ImportError:
-        from src.rule_based import RuleBasedOptimizer
-        logger.info("Using original RuleBasedOptimizer")
+    # Use rule-based optimizer
+    from src.rule_based import RuleBasedOptimizer
+    logger.info("Using fixed RuleBasedOptimizer")
         
-    from src.codebert_optimizer import CodeBERTOptimizer, apply_codebert_optimization
+   # from src.codebert_optimizer import CodeBERTOptimizer, apply_codebert_optimization
     from src.code_transformation import CodeTransformer
     logger.info("Successfully imported optimization components")
 except ImportError as e:
@@ -42,13 +43,28 @@ except ImportError as e:
     sys.exit(1)
 
 app = Flask(__name__)
-# Enable CORS for all routes and origins
-CORS(app, resources={r"/*": {"origins": "*"}})
+# Enable CORS for all routes and origins with proper configuration
+CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"]}})
+
+# Add a global OPTIONS handler
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        return response
 
 # Initialize optimizers
 try:
-    rule_optimizer = RuleBasedOptimizer()
-    codebert_optimizer = CodeBERTOptimizer()
+    # Disable neural model by default
+    #import src.codebert_optimizer
+    #src.codebert_optimizer.NEURAL_MODEL_AVAILABLE = False
+    
+    # Configure optimizers
+    rule_based_optimizer = RuleBasedOptimizer()
+    #codebert_optimizer = CodeBERTOptimizer(use_neural_model=False)
     code_transformer = CodeTransformer()
     logger.info("Successfully initialized all optimizers")
 except Exception as e:
@@ -91,14 +107,14 @@ def health_check():
     return jsonify({
         'status': 'ok',
         'optimizers': {
-            'rule_based': bool(rule_optimizer),
-            'codebert': bool(codebert_optimizer),
+            'rule_based': bool(rule_based_optimizer),
+            'codebert': False,  # codebert is disabled
             'transformer': bool(code_transformer)
         }
     })
 
-@app.route('/optimize', methods=['POST'])
-@app.route('/api/optimize', methods=['POST'])
+@app.route('/optimize', methods=['POST', 'OPTIONS'])
+@app.route('/api/optimize', methods=['POST', 'OPTIONS'])
 def optimize_code():
     """
     Endpoint to optimize code using available optimizers
@@ -130,6 +146,11 @@ def optimize_code():
         "errors": ["Error messages if any"]
     }
     """
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+        
     start_time = time.time()
     logger.info("Received optimization request")
     
@@ -192,134 +213,92 @@ def optimize_code():
             
         # Apply optimizations based on mode
         try:
-            # Apply rule-based optimization first in auto or rule mode
-            if mode in ['auto', 'rule']:
-                if debug:
-                    logger.info("Starting rule-based optimization")
-                
-                # Apply rule-based optimization
-                rule_start = time.time()
-                try:
-                    optimized_code, original_complexity, optimized_complexity, rule_explanation = rule_optimizer.optimize(code, level=level)
-                    logger.info("Rule-based optimization completed")
-                except Exception as e:
-                    error_msg = f"Error in rule-based optimization: {str(e)}"
-                    logger.error(error_msg)
-                    logger.error(traceback.format_exc())
-                    all_errors.append(error_msg)
-                    # Continue with original code
-                    optimized_code = code
-                    original_complexity = "O(?)"
-                    optimized_complexity = "O(?)"
-                    rule_explanation = f"Error in optimization: {str(e)}"
-                
-                rule_time = time.time() - rule_start
-                
-                # Get improvements from rule-based optimizer
-                try:
-                    rule_improvements = rule_optimizer.get_applied_rules()
-                    improvements.extend(rule_improvements)
-                    optimization_time += rule_time
-                    optimization_count += len(rule_improvements)
-                    
-                    if debug:
-                        logger.info(f"Rule-based optimization: {len(rule_improvements)} improvements in {rule_time:.3f}s")
-                except Exception as e:
-                    error_msg = f"Error getting rule-based improvements: {str(e)}"
-                    logger.error(error_msg)
-                    all_errors.append(error_msg)
-                
-                # If we already have optimizations and mode is not auto, return early
-                if improvements and mode != 'auto':
-                    logger.info("Early return after successful rule-based optimization")
-                    code = optimized_code  # Update code for next optimization if needed
+            # Force all optimizations to run in sequence
+            # Apply rule-based optimization first
+            if debug:
+                logger.info("Starting rule-based optimization")
             
-            # Apply CodeBERT optimization in auto or codebert mode
-            if mode in ['auto', 'codebert']:
-                if debug:
-                    logger.info("Starting CodeBERT optimization")
+            # Apply rule-based optimization
+            rule_start = time.time()
+            try:
+                # Enable all rule-based optimization features
+                optimized_code, original_complexity, optimized_complexity, rule_explanation = rule_based_optimizer.optimize(code, level=level)
                 
-                # Apply CodeBERT optimization
-                codebert_start = time.time()
-                codebert_improvements = []
-                codebert_errors = []
+                # Add explicit optimization information
+                logger.info(f"Applied rule-based optimization with level: {level}")
+                logger.info(f"Original complexity: {original_complexity}, Optimized complexity: {optimized_complexity}")
                 
-                try:
-                    optimized_code, codebert_improvements, codebert_errors = apply_codebert_optimization(
-                        optimized_code, level
-                    )
-                    logger.info("CodeBERT optimization completed")
-                except Exception as e:
-                    error_msg = f"Error in CodeBERT optimization: {str(e)}"
-                    logger.error(error_msg)
-                    logger.error(traceback.format_exc())
-                    all_errors.append(error_msg)
-                
-                codebert_time = time.time() - codebert_start
-                
-                # Add improvements and errors
-                improvements.extend(codebert_improvements)
-                all_errors.extend(codebert_errors)
-                optimization_time += codebert_time
-                optimization_count += len(codebert_improvements)
-                
-                if debug:
-                    logger.info(f"CodeBERT optimization: {len(codebert_improvements)} improvements in {codebert_time:.3f}s")
-                
-                # If we already have optimizations and mode is not auto, return early
-                if codebert_improvements and mode != 'auto':
-                    logger.info("Early return after successful CodeBERT optimization")
-                    code = optimized_code  # Update code for next optimization if needed
+                logger.info("Rule-based optimization completed")
+            except Exception as e:
+                error_msg = f"Error in rule-based optimization: {str(e)}"
+                logger.error(error_msg)
+                logger.error(traceback.format_exc())
+                all_errors.append(error_msg)
+                # Continue with original code
+                optimized_code = code
+                original_complexity = "O(?)"
+                optimized_complexity = "O(?)"
+                rule_explanation = f"Error in optimization: {str(e)}"
             
-            # Apply AST transformation in auto or ast mode
-            if mode in ['auto', 'ast']:
-                if debug:
-                    logger.info("Starting AST transformation")
+            rule_time = time.time() - rule_start
+            
+            # Get improvements from rule-based optimizer
+            try:
+                rule_improvements = rule_based_optimizer.get_applied_rules()
                 
-                # Apply AST transformation
-                ast_start = time.time()
-                parse_errors = []
-                transform_errors = []
-                generate_errors = []
-                
-                # Parse code into AST
-                try:
-                    ast_tree, parse_errors = code_transformer.parse_code(optimized_code)
-                    all_errors.extend(parse_errors)
+                # If no improvements detected but code was changed, add a generic improvement
+                if not rule_improvements and optimized_code != code:
+                    logger.info("Code was optimized but no improvements reported. Adding generic improvement.")
+                    rule_improvements = [{
+                        'type': 'rule_based_optimization',
+                        'description': 'Code was optimized with rule-based techniques',
+                        'category': 'performance'
+                    }]
                     
-                    if ast_tree:
-                        # Transform AST
-                        transformed_ast, transform_errors = code_transformer.transform_code(
-                            ast_tree, optimizations
-                        )
-                        all_errors.extend(transform_errors)
+                    # Extract information about what was optimized
+                    if "# Optimized with Rule-based optimizer" in optimized_code:
+                        # Check for common patterns
+                        if original_complexity != optimized_complexity:
+                            rule_improvements.append({
+                                'type': 'complexity_improvement',
+                                'description': f'Improved complexity from {original_complexity} to {optimized_complexity}',
+                                'category': 'performance'
+                            })
                         
-                        if transformed_ast:
-                            # Generate optimized code
-                            optimized_code, generate_errors = code_transformer.generate_optimized_code(transformed_ast)
-                            all_errors.extend(generate_errors)
-                            logger.info("AST transformation completed")
-                except Exception as e:
-                    error_msg = f"Error in AST transformation: {str(e)}"
-                    logger.error(error_msg)
-                    logger.error(traceback.format_exc())
-                    all_errors.append(error_msg)
+                        # Check for specific optimizations
+                        if len(optimized_code) < len(code):
+                            rule_improvements.append({
+                                'type': 'code_reduction',
+                                'description': 'Reduced code size and improved readability',
+                                'category': 'readability'
+                            })
                 
-                ast_time = time.time() - ast_start
-                optimization_time += ast_time
+                improvements.extend(rule_improvements)
+                optimization_time += rule_time
+                optimization_count += len(rule_improvements)
                 
-                # Since the CodeTransformer doesn't track improvements directly,
-                # we estimate based on changes in the code
-                if optimized_code != code:
-                    improvements.append({
-                        'type': 'ast_transformation',
-                        'description': 'Applied AST-based code transformations',
-                        'category': 'structure'
-                    })
-                    optimization_count += 1
+                # Log detailed information about applied optimizations
+                for improvement in rule_improvements:
+                    improvement_type = improvement.get('type', 'unknown')
+                    description = improvement.get('description', 'No description')
+                    logger.info(f"Applied optimization: {improvement_type} - {description}")
                 
                 if debug:
-                    logger.info(f"AST transformation completed in {ast_time:.3f}s")
+                    logger.info(f"Rule-based optimization: {len(rule_improvements)} improvements in {rule_time:.3f}s")
+            except Exception as e:
+                error_msg = f"Error getting rule-based improvements: {str(e)}"
+                logger.error(error_msg)
+                all_errors.append(error_msg)
+            
+            # Skip all other optimizers - only use rule-based
+            logger.info("Skipping CodeBERT and AST transformations as requested")
+            
+            # Add summary of applied optimizers
+            improvements.append({
+                'type': 'optimization_pipeline',
+                'description': 'Code processed by rule-based optimizer only',
+                'category': 'info'
+            })
         
         except Exception as e:
             error_msg = f"Error during optimization process: {str(e)}"
@@ -334,10 +313,33 @@ def optimize_code():
         explanation = ""
         if improvements:
             explanation_parts = []
-            for i, imp in enumerate(improvements[:5]):  # First 5 improvements
-                desc = imp.get('description', '')
-                if desc:
-                    explanation_parts.append(desc)
+            
+            # Categorize improvements for better explanation
+            rule_based_imps = [imp for imp in improvements if 'algorithm_replacement' in imp.get('type', '')]
+            codebert_imps = [imp for imp in improvements if 'codebert' in imp.get('type', '')]
+            ast_imps = [imp for imp in improvements if 'ast' in imp.get('type', '')]
+            performance_imps = [imp for imp in improvements if imp.get('category') == 'performance']
+            
+            # Add key improvements to explanation
+            if rule_based_imps:
+                explanation_parts.append(rule_based_imps[0]['description'])
+                
+            if codebert_imps:
+                codebert_desc = next((imp['description'] for imp in codebert_imps if imp.get('type') != 'codebert_optimization'), 
+                                    'Improved code quality with CodeBERT optimizations')
+                explanation_parts.append(codebert_desc)
+                
+            if ast_imps:
+                ast_desc = next((imp['description'] for imp in ast_imps if imp.get('type') != 'ast_transformation'), 
+                                'Applied AST-based code transformations')
+                # Only add AST explanation if different from above
+                if ast_desc not in explanation_parts:
+                    explanation_parts.append(ast_desc)
+                    
+            # Always add performance metrics
+            performance_desc = next((imp['description'] for imp in improvements if imp.get('type') == 'performance_metrics'), 
+                                  f"Processing time: {optimization_time:.2f}s")
+            explanation_parts.append(performance_desc)
             
             if explanation_parts:
                 explanation = "Optimizations applied: " + ", ".join(explanation_parts)

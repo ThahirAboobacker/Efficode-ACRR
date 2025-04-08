@@ -1,3 +1,9 @@
+"""
+DEVELOPMENT SERVER - Simplified implementation for testing purposes
+This is a lightweight alternative to the main app.py in the backend root.
+Use this for development and testing, but prefer the main app.py for production.
+"""
+
 import os
 import sys
 import time
@@ -6,7 +12,7 @@ import logging
 import traceback
 from typing import Dict, List, Any
 
-print("Starting app.py...")
+print("Starting development server...")
 
 # Add parent directory to path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -170,11 +176,8 @@ def optimize_code():
                     optimized_code = result.get('optimized_code', code)
                     applied_rules = result.get('applied_rules', [])
                 else:
-                    optimized_code = result.optimized_code or code
-                    applied_rules = [{
-                        'name': change.description,
-                        'description': f"Lines {change.line_start}-{change.line_end}: {change.description}"
-                    } for change in result.detailed_changes]
+                    optimized_code = result[0] if isinstance(result, tuple) and len(result) > 0 else code
+                    applied_rules = rule_based_optimizer.get_applied_rules()
                 logger.info(f"Applied {len(applied_rules)} rule-based optimizations")
             except Exception as e:
                 logger.error(f"Error in rule-based optimization: {e}")
@@ -205,7 +208,7 @@ def optimize_code():
         explanation = "Code optimization completed successfully."
         if applied_rules:
             explanation = "Applied optimizations:\n" + "\n".join(
-                f"- {rule['name']}: {rule['description']}"
+                f"- {rule['description'] if isinstance(rule, dict) else rule}"
                 for rule in applied_rules
             )
         
@@ -228,7 +231,7 @@ def optimize_code():
 def index():
     """API root - provides basic information"""
     return jsonify({
-        "name": "EFFICODE-ACRR API",
+        "name": "EFFICODE-ACRR API - Development Server",
         "version": Config.API_VERSION,
         "status": "operational",
         "endpoints": [
@@ -256,8 +259,9 @@ if __name__ == '__main__':
     )
     
     # Print starting message
-    print("Starting Efficode server on http://0.0.0.0:5000")
+    print("Starting Efficode development server on http://0.0.0.0:5000")
     print("Press CTRL+C to stop the server")
     
-    # Run the application with explicit settings
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Use waitress for a more production-like server in development
+    print("Using waitress development server")
+    serve(app, host='0.0.0.0', port=5000) 

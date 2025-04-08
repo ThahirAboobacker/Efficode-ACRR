@@ -8,21 +8,17 @@ export interface ApiResponse {
   processing_time: number;
   timestamp?: number;
   applied_rules?: any[]; // New field for applied rules
+  status: 'success' | 'error';
+  errors?: string[];
+  error?: string;
 }
 
 // Define the structure we use in our frontend
 export interface OptimizationResult {
-  originalCode: string;
   optimizedCode: string;
+  explanation: string;
   originalComplexity: string;
   optimizedComplexity: string;
-  explanation: string;
-  processingTime: number;
-  timestamp: number;
-  complexityComparison: {
-    original: string;
-    optimized: string;
-  };
   metrics?: {
     speedup: number;
     efficiencyGain: number;
@@ -60,4 +56,23 @@ export interface OptimizationResultsProps {
 export interface ComplexityVisualizerProps {
   originalComplexity: ComplexityData;
   optimizedComplexity: ComplexityData;
+}
+
+export interface OptimizationError {
+  message: string;
+  code?: string;
+}
+
+export interface AlgorithmTemplate {
+  id: string;
+  name: string;
+  template: string;
+  description: string;
+  complexity: string;
+}
+
+export interface OptimizationConfig {
+  level: 'low' | 'medium' | 'high';
+  target: 'performance' | 'readability' | 'both';
+  preserveComments: boolean;
 } 
