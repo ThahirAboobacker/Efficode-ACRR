@@ -64,7 +64,7 @@ class RuleBasedOptimizer:
     
     Args:
             code: The code to optimize
-            level: Optimization level ('low', 'medium', 'high')
+        level: Optimization level ('low', 'medium', 'high')
         
     Returns:
             tuple: (optimized_code, original_complexity, optimized_complexity, explanation)
@@ -137,7 +137,7 @@ class RuleBasedOptimizer:
             
             return optimized_code, original_complexity, optimized_complexity, explanation
             
-        except Exception as e:
+            except Exception as e:
             logger.error(f"Error in optimization: {str(e)}")
             logger.error(traceback.format_exc())
             return code, "O(?)", "O(?)", f"Error in optimization: {str(e)}"
@@ -608,7 +608,7 @@ def {fib_func_name}({arg_name}):
                     for i, stmt in enumerate(new_func.body):
                         if i < len(node.body):
                             ast.copy_location(stmt, node.body[i])
-                        else:
+                else:
                             ast.copy_location(stmt, node.body[-1])
                     
                     # Fix any missing locations
@@ -936,8 +936,8 @@ def {search_func_name}({arg_str}):
                                     self.changes.append({
                                         'type': 'string_join_optimization',
                                         'description': 'Replaced inefficient string concatenation with join() method',
-                                        'category': 'performance'
-                                    })
+                'category': 'performance'
+            })
                                     self.changes_made = True
                                 
                                 # Copy location for better error messages
@@ -1018,8 +1018,8 @@ def {search_func_name}({arg_str}):
                                 self.changes.append({
                                     'type': 'loop_optimization',
                                     'description': 'Converted range(len(x)) to more efficient enumerate(x)',
-                                    'category': 'performance'
-                                })
+                'category': 'performance'
+            })
                                 self.changes_made = True
                             
                             # Copy location for better error messages
@@ -1362,8 +1362,8 @@ def {search_func_name}({arg_str}):
                         self.changes.append({
                             'type': 'unused_variable_removal',
                             'description': f'Removed unused variable {target}',
-                            'category': 'optimization'
-                        })
+                    'category': 'optimization'
+                })
                         self.removed_vars.add(target)
                         return None
                 return node
@@ -1731,8 +1731,8 @@ def {search_func_name}({arg_str}):
                         self.changes.append({
                             'type': 'repeated_computation_elimination',
                             'description': f'Eliminated repeated computation of {expr_str}',
-                            'category': 'performance'
-                        })
+                        'category': 'performance'
+                    })
                         self.changes_made = True
                     
                     # Replace with variable reference
@@ -1782,7 +1782,7 @@ def {search_func_name}({arg_str}):
                     
                     # Replace with variable reference
                     return ast.Name(id=var_name, ctx=ast.Load())
-                else:
+                    else:
                     # First time seeing this expression
                     temp_var = f"temp_var_{self.next_var_id}"
                     self.next_var_id += 1
@@ -1919,7 +1919,7 @@ def {search_func_name}({arg_str}):
                     if found_exit_statement:
                         if isinstance(item, (ast.Return, ast.Raise)) or (isinstance(item, ast.Break) and self.in_loop) or (isinstance(item, ast.Continue) and self.in_loop):
                             self.record_change("Eliminated unreachable exit statement in loop body")
-                        else:
+            else:
                             self.record_change("Eliminated unreachable code after exit statement in loop body")
                     else:
                         filtered_body.append(item)
@@ -2116,7 +2116,7 @@ def {search_func_name}({arg_str}):
                         if found_exit_statement:
                             if isinstance(item, (ast.Return, ast.Raise)) or (isinstance(item, ast.Break) and self.in_loop) or (isinstance(item, ast.Continue) and self.in_loop):
                                 self.record_change("Eliminated unreachable exit statement in try-else block")
-                            else:
+            else:
                                 self.record_change("Eliminated unreachable code after exit statement in try-else block")
                         else:
                             filtered_orelse.append(item)
@@ -2141,7 +2141,7 @@ def {search_func_name}({arg_str}):
                         if found_exit_statement:
                             if isinstance(item, (ast.Return, ast.Raise)) or (isinstance(item, ast.Break) and self.in_loop) or (isinstance(item, ast.Continue) and self.in_loop):
                                 self.record_change("Eliminated unreachable exit statement in finally block")
-                            else:
+                        else:
                                 self.record_change("Eliminated unreachable code after exit statement in finally block")
                         else:
                             filtered_finalbody.append(item)
@@ -2451,7 +2451,7 @@ class StringJoinOptimizer(ast.NodeTransformer):
                     # Try to extract the string if it's a constant
                     if isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
                         var_info['strings'].append(stmt.value.value)
-                    else:
+                else:
                         var_info['strings'].append(None)  # Non-constant value
             
             # Look for reassignment with +
@@ -2471,7 +2471,7 @@ class StringJoinOptimizer(ast.NodeTransformer):
                             # Try to extract the string if it's a constant
                             if isinstance(right, ast.Constant) and isinstance(right.value, str):
                                 var_info['strings'].append(right.value)
-                            else:
+                else:
                                 var_info['strings'].append(None)  # Non-constant value
     
     def visit_Assign(self, node):
@@ -2598,7 +2598,7 @@ class DeadCodeEliminator(ast.NodeTransformer):
             def visit_Call(self, node):
                 """Process function calls to identify repeated expensive computations."""
                 self.generic_visit(node)
-                
+        
                 # Skip simple calls or calls to builtins
                 if isinstance(node.func, ast.Name) and node.func.id in {'len', 'print', 'str', 'int', 'float', 'bool'}:
                     return node
