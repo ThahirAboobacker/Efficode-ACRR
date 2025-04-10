@@ -1,6 +1,6 @@
 # Efficode-ACRR: AI Code Review and Refactoring Tool
 
-A comprehensive tool for automated code review and refactoring using AI techniques.
+A comprehensive tool for automated code review and refactoring using AI and rule-based techniques.
 
 ## Project Structure
 
@@ -8,7 +8,9 @@ A comprehensive tool for automated code review and refactoring using AI techniqu
 .
 ├── backend/           # Python backend server
 │   ├── src/          # Core backend logic
-│   └── app.py        # Main backend application
+│   │   └── rule_based.py  # Rule-based optimization engine
+│   ├── app.py        # Main backend application
+│   └── interactive_optimizer.py  # Interactive command-line optimizer
 ├── frontend/         # React frontend application
 │   ├── src/          # React source code
 │   └── public/       # Static assets
@@ -35,6 +37,11 @@ pip install -r requirements.txt
 python backend/app.py
 ```
 
+4. Use the interactive optimizer:
+```bash
+python backend/interactive_optimizer.py
+```
+
 ### Frontend Setup
 
 1. Install Node.js dependencies:
@@ -52,19 +59,45 @@ The frontend will be available at http://localhost:3000
 
 ## Features
 
-- AI-powered code analysis and optimization
-- Rule-based code refactoring
-- Code complexity analysis
-- Automated code review suggestions
-- Real-time code transformation
-- Interactive web interface
+### Rule-Based Optimizer
+
+The core of Efficode-ACRR is the rule-based optimizer that can detect and optimize various code patterns:
+
+- **Algorithm Detection**: Identifies and optimizes common algorithms (sorting, searching)
+- **Loop Optimization**: Improves inefficient loops and transforms them into more efficient code
+- **Constant Folding**: Pre-computes constant expressions
+- **Dead Code Elimination**: Removes unreachable and unused code
+- **String Optimization**: Enhances string concatenation operations
+- **Repeated Computation Elimination**: Avoids redundant calculations
+
+### Interactive Optimizer
+
+The interactive command-line tool allows you to:
+
+1. Choose optimization types:
+   - Rule-based optimizations
+   - Code transformations
+   - Both
+
+2. Select algorithm domains:
+   - Sorting
+   - Searching
+   - Graph algorithms
+   - Dynamic programming
+   - String manipulation
+
+3. Input your code and receive optimized versions with:
+   - Complexity analysis
+   - Detailed optimization explanations
+   - Performance improvements
 
 ## Development
 
 ### Backend Development
 
 - The backend is built with Flask and provides RESTful APIs
-- Core logic is in the `backend/src` directory
+- Core optimization logic is in `backend/src/rule_based.py`
+- Interactive CLI is in `backend/interactive_optimizer.py`
 - Main application entry point is `backend/app.py`
 
 ### Frontend Development
