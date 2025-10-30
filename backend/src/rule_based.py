@@ -137,7 +137,7 @@ class RuleBasedOptimizer:
             
             return optimized_code, original_complexity, optimized_complexity, explanation
             
-            except Exception as e:
+        except Exception as e:
             logger.error(f"Error in optimization: {str(e)}")
             logger.error(traceback.format_exc())
             return code, "O(?)", "O(?)", f"Error in optimization: {str(e)}"
