@@ -281,8 +281,6 @@ We welcome contributions! Here's how to get started:
 ## 📞 **Support**
 
 - 📧 **Email**: support@efficode-acrr.com
-- 💬 **Discord**: [Join our community](https://discord.gg/efficode)
-- 📖 **Documentation**: [Full docs](https://docs.efficode-acrr.com)
 - 🐛 **Issues**: [GitHub Issues](https://github.com/ThahirAboobacker/Efficode-ACRR/issues)
 
 ## 📄 **License**
@@ -296,15 +294,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **LeetCode & GeeksforGeeks** for algorithmic inspiration
 - **Open Source Community** for continuous support
 
-## 🌟 **Star History**
-
-[![Star History Chart](https://api.star-history.com/svg?repos=ThahirAboobacker/Efficode-ACRR&type=Date)](https://star-history.com/#ThahirAboobacker/Efficode-ACRR&Date)
 
 ---
 
 <div align="center">
 
-**Made with ❤️ by the EFFICODE-ACRR Team**
 
 [⭐ Star this repo](https://github.com/ThahirAboobacker/Efficode-ACRR) • [🐛 Report Bug](https://github.com/ThahirAboobacker/Efficode-ACRR/issues) • [💡 Request Feature](https://github.com/ThahirAboobacker/Efficode-ACRR/issues)
 
